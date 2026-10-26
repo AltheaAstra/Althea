@@ -1,0 +1,21 @@
+name: seqotia
+description: Local-first AI document workspace for organizations.
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.7.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  dio: ^5.11.1
+  file_picker: ^11.0.3
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+
+flutter:
+  uses-material-design: true
