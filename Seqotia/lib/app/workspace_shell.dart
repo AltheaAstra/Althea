@@ -8,10 +8,13 @@ import '../features/folders/folder_view.dart';
 import 'secondary_views.dart';
 
 class WorkspaceShell extends StatelessWidget {
-  const WorkspaceShell({required this.activePage, this.initialTemplate, this.initialFolderId, this.initialFolderName, super.key});
+  const WorkspaceShell({required this.activePage, this.initialTemplate, this.initialDocument, this.initialDocumentCategory, this.initialRepairStatus, this.initialFolderId, this.initialFolderName, super.key});
 
   final String activePage;
   final String? initialTemplate;
+  final Map<String, dynamic>? initialDocument;
+  final String? initialDocumentCategory;
+  final String? initialRepairStatus;
   final int? initialFolderId;
   final String? initialFolderName;
   static final SeqotiaApi api = SeqotiaApi();
@@ -39,9 +42,9 @@ class WorkspaceShell extends StatelessWidget {
       };
 
   Widget _page() => switch (activePage) {
-        'documents' => DocumentLibraryView(api: api, folderId: initialFolderId, folderName: initialFolderName),
+        'documents' => DocumentLibraryView(api: api, folderId: initialFolderId, folderName: initialFolderName, initialCategory: initialDocumentCategory, initialRepairStatus: initialRepairStatus),
         'folders' => FolderView(api: api),
-        'studio' => DocumentStudioView(api: api, initialCategory: initialTemplate),
+        'studio' => DocumentStudioView(api: api, initialCategory: initialTemplate, initialDocument: initialDocument),
         'templates' => TemplateView(api: api),
         'analytics' => AnalyticsView(api: api),
         'users' => const UsersView(),
@@ -58,13 +61,19 @@ class WorkspaceShell extends StatelessWidget {
           ? null
           : AppBar(
               title: Text(_title),
-              leading: Builder(
-                builder: (context) => IconButton(
-                  tooltip: 'เปิดเมนู',
-                  onPressed: () => Scaffold.of(context).openDrawer(),
-                  icon: const Icon(Icons.menu_rounded),
-                ),
-              ),
+              leading: activePage == 'studio' && initialDocument != null
+                  ? IconButton(
+                      tooltip: 'กลับไปคลังเอกสาร',
+                      onPressed: () => Navigator.maybePop(context),
+                      icon: const Icon(Icons.arrow_back_rounded),
+                    )
+                  : Builder(
+                      builder: (context) => IconButton(
+                        tooltip: 'เปิดเมนู',
+                        onPressed: () => Scaffold.of(context).openDrawer(),
+                        icon: const Icon(Icons.menu_rounded),
+                      ),
+                    ),
               actions: const [Padding(padding: EdgeInsets.only(right: 14), child: _BackendStatus())],
             ),
       drawer: wide

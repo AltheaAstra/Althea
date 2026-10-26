@@ -20,6 +20,7 @@ from ..document_processors import (
     extract_xlsx,
     validate_office_archive,
 )
+from ..document_processors.draft_export import render_draft_docx
 
 
 class StoreError(Exception):
@@ -318,13 +319,9 @@ class Store:
         if parsed.isoformat() != value:
             raise StoreError(f"{label} must use YYYY-MM-DD.", 422)
 
-    def create_draft(self, payload: dict[str, Any]) -> dict[str, Any]:
-        if set(payload) - {"category", "metadata", "title", "folder_id"}:
-            raise StoreError("Draft request contains unsupported fields.", 422)
-        category = payload.get("category")
+    def _validate_draft_metadata(self, category: str, metadata: Any) -> dict[str, Any]:
         if category not in DOC_CATEGORIES:
             raise StoreError("category must be po, pr, or repair.", 422)
-        metadata = payload.get("metadata")
         if not isinstance(metadata, dict):
             raise StoreError("metadata must be an object.", 422)
         metadata = dict(metadata)
@@ -344,9 +341,53 @@ class Store:
             for field, label in (("reporter", "Reporter"), ("equipment_name", "Equipment"), ("issue_description", "Issue description")):
                 self._required_text(metadata, field, label)
             self._optional_date(metadata, "report_date", "Report date")
-            if metadata.get("urgency", "normal") not in {"low", "normal", "high"}:
+            urgency = metadata.get("urgency", "normal")
+            if not isinstance(urgency, str) or urgency not in {"low", "normal", "high"}:
                 raise StoreError("Urgency must be low, normal, or high.", 422)
+            repair_status = metadata.get("repair_status", "reported")
+            if not isinstance(repair_status, str) or repair_status not in {"reported", "in_progress", "completed"}:
+                raise StoreError("Repair status must be reported, in_progress, or completed.", 422)
+            metadata["repair_status"] = repair_status
+            for field, label in (
+                ("technician_name", "Technician"),
+                ("diagnosis", "Diagnosis"),
+                ("work_performed", "Work performed"),
+                ("parts_used", "Parts used"),
+            ):
+                value = metadata.get(field, "")
+                if not isinstance(value, str) or len(value) > 2000:
+                    raise StoreError(f"{label} must be text up to 2,000 characters.", 422)
+                metadata[field] = value.strip()
+            self._optional_date(metadata, "completed_date", "Completion date")
+            if repair_status == "completed":
+                self._required_text(metadata, "technician_name", "Technician")
+                self._required_text(metadata, "work_performed", "Work performed")
+                if not metadata.get("completed_date"):
+                    raise StoreError("Completion date is required for completed repairs.", 422)
+            repair_cost = metadata.get("repair_cost", "")
+            if repair_cost not in (None, ""):
+                try:
+                    if not isinstance(repair_cost, str) or len(repair_cost) > 40:
+                        raise InvalidOperation
+                    amount = Decimal(repair_cost.strip())
+                    if (not amount.is_finite() or amount < 0 or amount > Decimal("1000000000000")
+                            or amount.as_tuple().exponent < -2):
+                        raise InvalidOperation
+                except (InvalidOperation, ValueError):
+                    raise StoreError("Repair cost must be a non-negative amount with up to two decimals.", 422) from None
+                metadata["repair_cost"] = format(amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP), "f")
+            else:
+                metadata["repair_cost"] = ""
             metadata.pop("items", None)
+        return metadata
+
+    def create_draft(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if set(payload) - {"category", "metadata", "title", "folder_id"}:
+            raise StoreError("Draft request contains unsupported fields.", 422)
+        category = payload.get("category")
+        if not isinstance(category, str):
+            raise StoreError("category must be po, pr, or repair.", 422)
+        metadata = self._validate_draft_metadata(category, payload.get("metadata"))
         title = payload.get("title")
         title = str(title).strip() if isinstance(title, str) else ""
         if not title:
@@ -366,6 +407,33 @@ class Store:
                 extracted_text=None, metadata=metadata,
             )
 
+    def update_draft(self, doc_id: str, changes: dict[str, Any]) -> dict[str, Any]:
+        if not changes or set(changes) - {"metadata", "title"}:
+            raise StoreError("Only title and metadata can be changed on a draft.", 422)
+        with self._connection() as connection:
+            current = self._document(connection, doc_id)
+            category = current["category"]
+            if current["file_type"] != "seqotia" or current["approval_status"] != "draft" or category not in DOC_CATEGORIES:
+                raise StoreError("Only Studio drafts can be edited here.", 409)
+            metadata = self._validate_draft_metadata(category, changes.get("metadata", current["metadata"]))
+            title = changes.get("title", current["file_name"])
+            if not isinstance(title, str):
+                raise StoreError("title must be text.", 422)
+            title = title.strip()
+            if not title or len(title) > 255:
+                raise StoreError("title must contain between 1 and 255 characters.", 422)
+            now = timestamp()
+            version = current["current_version"] + 1
+            connection.execute(
+                "UPDATE documents SET file_name=?,metadata_json=?,current_version=?,updated_at=? WHERE id=?",
+                (title, _json(metadata), version, now, doc_id),
+            )
+            connection.execute(
+                "INSERT INTO document_history(document_id,version,actor,action,details_json,created_at) VALUES(?,?,?,?,?,?)",
+                (doc_id, version, "Local user", "draft_updated", _json({"fields": sorted(changes)}), now),
+            )
+            return self._document(connection, doc_id)
+
     def _document(self, connection: sqlite3.Connection, doc_id: str, include_archived: bool = False) -> dict[str, Any]:
         where = "id=?" if include_archived else "id=? AND archived_at IS NULL"
         row = connection.execute(f"SELECT * FROM documents WHERE {where}", (doc_id,)).fetchone()
@@ -384,13 +452,13 @@ class Store:
 
     def list_documents(self, *, search: str = "", folder_id: int | None = None,
                        category: str = "", approval_status: str = "", processing_status: str = "",
-                       sort: str = "updated_desc", limit: int = 100) -> list[dict[str, Any]]:
+                       repair_status: str = "", sort: str = "updated_desc", limit: int = 100) -> list[dict[str, Any]]:
         conditions = ["d.archived_at IS NULL"]
         values: list[Any] = []
         if search.strip():
-            conditions.append("(d.file_name LIKE ? OR d.original_file_name LIKE ? OR d.extracted_text LIKE ?)")
+            conditions.append("(d.file_name LIKE ? OR d.original_file_name LIKE ? OR d.extracted_text LIKE ? OR d.metadata_json LIKE ?)")
             term = f"%{search.strip()}%"
-            values.extend([term, term, term])
+            values.extend([term, term, term, term])
         if folder_id is not None:
             conditions.append("d.folder_id=?")
             values.append(folder_id)
@@ -403,6 +471,22 @@ class Store:
         if processing_status:
             conditions.append("d.processing_status=?")
             values.append(processing_status)
+        if repair_status:
+            if not isinstance(repair_status, str) or repair_status not in {"reported", "in_progress", "completed"}:
+                raise StoreError("repair_status is not supported.", 422)
+            conditions.append("d.category='repair'")
+            if repair_status == "reported":
+                conditions.append(
+                    "(d.metadata_json LIKE ? OR (d.metadata_json NOT LIKE ? AND d.metadata_json NOT LIKE ?))"
+                )
+                values.extend([
+                    '%"repair_status":"reported"%',
+                    '%"repair_status":"in_progress"%',
+                    '%"repair_status":"completed"%',
+                ])
+            else:
+                conditions.append("d.metadata_json LIKE ?")
+                values.append(f'%"repair_status":"{repair_status}"%')
         sort_columns = {
             "name_asc": "d.file_name COLLATE NOCASE ASC",
             "name_desc": "d.file_name COLLATE NOCASE DESC",
@@ -481,6 +565,14 @@ class Store:
             mime = mimetypes.guess_type(document.get("original_file_name") or "")[0] or "application/octet-stream"
             return path, document.get("original_file_name") or document["file_name"], mime
 
+    def export_document(self, doc_id: str) -> tuple[bytes, str, str]:
+        with self._connection() as connection:
+            document = self._document(connection, doc_id)
+        if document["file_type"] != "seqotia" or document["category"] not in DOC_CATEGORIES:
+            raise StoreError("Only Document Studio drafts can be exported as a Word document.", 409)
+        content, filename = render_draft_docx(document)
+        return content, filename, "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
     def reprocess_document(self, doc_id: str) -> dict[str, Any]:
         path, filename, mime = self.download_path(doc_id)
         content = path.read_bytes()
@@ -513,10 +605,22 @@ class Store:
                    FROM documents WHERE archived_at IS NULL""",
                 (recent_after,),
             ).fetchone()
+            repair_counts = connection.execute(
+                """SELECT sum(CASE WHEN metadata_json LIKE '%"repair_status":"reported"%'
+                                      OR (metadata_json NOT LIKE '%"repair_status":"in_progress"%'
+                                          AND metadata_json NOT LIKE '%"repair_status":"completed"%')
+                                     THEN 1 ELSE 0 END) AS reported,
+                          sum(CASE WHEN metadata_json LIKE '%"repair_status":"in_progress"%' THEN 1 ELSE 0 END) AS in_progress,
+                          sum(CASE WHEN metadata_json LIKE '%"repair_status":"completed"%' THEN 1 ELSE 0 END) AS completed
+                   FROM documents WHERE archived_at IS NULL AND category='repair'"""
+            ).fetchone()
             recent = connection.execute("SELECT id,file_name,category,updated_at,approval_status,processing_status FROM documents WHERE archived_at IS NULL ORDER BY updated_at DESC LIMIT 5").fetchall()
         return {"generated_at": now.isoformat(), "timezone": "Asia/Bangkok", "mode": "local_development",
                 "total_documents": row["total"] or 0, "created_last_7_days": row["created_recently"] or 0,
                 "pending_approval": row["pending_approval"] or 0, "needs_attention": row["needs_attention"] or 0,
+                "repair_reported": repair_counts["reported"] or 0,
+                "repair_in_progress": repair_counts["in_progress"] or 0,
+                "repair_completed": repair_counts["completed"] or 0,
                 "recent_documents": [dict(item) for item in recent]}
 
     def create_suggestion(self, document_type: str, field_name: str, text: str = "") -> dict[str, Any]:

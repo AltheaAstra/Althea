@@ -11,12 +11,16 @@ class DocumentLibraryView extends StatefulWidget {
     required this.api,
     this.folderId,
     this.folderName,
+    this.initialCategory,
+    this.initialRepairStatus,
     super.key,
   });
 
   final SeqotiaApi api;
   final int? folderId;
   final String? folderName;
+  final String? initialCategory;
+  final String? initialRepairStatus;
 
   @override
   State<DocumentLibraryView> createState() => _DocumentLibraryViewState();
@@ -31,12 +35,24 @@ class _DocumentLibraryViewState extends State<DocumentLibraryView> {
   String _category = '';
   String _processingStatus = '';
   String _approvalStatus = '';
+  String _repairStatus = '';
   String _sort = 'updated_desc';
 
   @override
   void initState() {
     super.initState();
-    _documents = widget.api.documents(folderId: widget.folderId);
+    if (['general', 'po', 'pr', 'repair'].contains(widget.initialCategory)) {
+      _category = widget.initialCategory!;
+    }
+    if (['reported', 'in_progress', 'completed'].contains(widget.initialRepairStatus)) {
+      _category = 'repair';
+      _repairStatus = widget.initialRepairStatus!;
+    }
+    _documents = widget.api.documents(
+      folderId: widget.folderId,
+      category: _category,
+      repairStatus: _repairStatus,
+    );
   }
 
   @override
@@ -53,6 +69,7 @@ class _DocumentLibraryViewState extends State<DocumentLibraryView> {
           category: _category,
           processingStatus: _processingStatus,
           approvalStatus: _approvalStatus,
+          repairStatus: _repairStatus,
           sort: _sort,
         );
       });
@@ -87,6 +104,9 @@ class _DocumentLibraryViewState extends State<DocumentLibraryView> {
   void _snack(String message) =>
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
 
+  bool _isStudioDraft(Map<String, dynamic> document) =>
+      document['file_type'] == 'seqotia' && document['approval_status'] == 'draft';
+
   @override
   Widget build(BuildContext context) => WorkspacePageFrame(
         title: widget.folderName == null ? 'คลังเอกสาร' : widget.folderName!,
@@ -108,7 +128,10 @@ class _DocumentLibraryViewState extends State<DocumentLibraryView> {
               onSearchSubmitted: (_) => _load(),
               category: _category,
               onCategoryChanged: (value) {
-                setState(() => _category = value);
+                setState(() {
+                  _category = value;
+                  if (value != 'repair') _repairStatus = '';
+                });
                 _load();
               },
               processingStatus: _processingStatus,
@@ -119,6 +142,11 @@ class _DocumentLibraryViewState extends State<DocumentLibraryView> {
               approvalStatus: _approvalStatus,
               onApprovalChanged: (value) {
                 setState(() => _approvalStatus = value);
+                _load();
+              },
+              repairStatus: _repairStatus,
+              onRepairStatusChanged: (value) {
+                setState(() => _repairStatus = value);
                 _load();
               },
               sort: _sort,
@@ -172,6 +200,7 @@ class _DocumentLibraryViewState extends State<DocumentLibraryView> {
                             itemCount: documents.length,
                             itemBuilder: (context, index) => _GridDocumentCard(
                               document: documents[index],
+                              isDraft: _isStudioDraft(documents[index]),
                               onOpen: () => _details(documents[index]),
                               onAction: (action) => _documentAction(action, documents[index]),
                             ),
@@ -182,6 +211,7 @@ class _DocumentLibraryViewState extends State<DocumentLibraryView> {
                             separatorBuilder: (_, __) => const SizedBox(height: 8),
                             itemBuilder: (context, index) => _ListDocumentCard(
                               document: documents[index],
+                              isDraft: _isStudioDraft(documents[index]),
                               onOpen: () => _details(documents[index]),
                               onAction: (action) => _documentAction(action, documents[index]),
                             ),
@@ -200,12 +230,21 @@ class _DocumentLibraryViewState extends State<DocumentLibraryView> {
       _details(document);
       return;
     }
+    if (action == 'edit') {
+      await Navigator.pushNamed(context, '/studio', arguments: {'document': document});
+      if (mounted) _load();
+      return;
+    }
     if (action == 'move') {
       await _move(document);
       return;
     }
     if (action == 'download') {
       await _download(document);
+      return;
+    }
+    if (action == 'export') {
+      await _export(document);
       return;
     }
     if (action == 'reprocess') {
@@ -280,6 +319,24 @@ class _DocumentLibraryViewState extends State<DocumentLibraryView> {
     try {
       await widget.api.downloadDocument(document['id'].toString(), path);
       if (mounted) _snack('บันทึกไฟล์แล้ว');
+    } catch (error) {
+      if (mounted) _snack(error.toString());
+    }
+  }
+
+  Future<void> _export(Map<String, dynamic> document) async {
+    final title = document['file_name']?.toString() ?? 'Seqotia draft';
+    var fileName = title.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_').trim();
+    if (fileName.isEmpty) fileName = 'seqotia-document';
+    if (!fileName.toLowerCase().endsWith('.docx')) fileName += '.docx';
+    final path = await FilePicker.saveFile(
+      dialogTitle: 'บันทึกเอกสาร Word',
+      fileName: fileName,
+    );
+    if (path == null || !mounted) return;
+    try {
+      await widget.api.exportDocument(document['id'].toString(), path);
+      if (mounted) _snack('บันทึกเอกสาร Word แล้ว');
     } catch (error) {
       if (mounted) _snack(error.toString());
     }
@@ -367,7 +424,7 @@ Widget _detailLine(String label, String value) => Padding(
     );
 
 class _Toolbar extends StatelessWidget {
-  const _Toolbar({required this.search, required this.onSearchChanged, required this.onSearchSubmitted, required this.category, required this.onCategoryChanged, required this.processingStatus, required this.onProcessingChanged, required this.approvalStatus, required this.onApprovalChanged, required this.sort, required this.onSortChanged, required this.grid, required this.onGridChanged});
+  const _Toolbar({required this.search, required this.onSearchChanged, required this.onSearchSubmitted, required this.category, required this.onCategoryChanged, required this.processingStatus, required this.onProcessingChanged, required this.approvalStatus, required this.onApprovalChanged, required this.repairStatus, required this.onRepairStatusChanged, required this.sort, required this.onSortChanged, required this.grid, required this.onGridChanged});
   final TextEditingController search;
   final ValueChanged<String> onSearchChanged;
   final ValueChanged<String> onSearchSubmitted;
@@ -377,6 +434,8 @@ class _Toolbar extends StatelessWidget {
   final ValueChanged<String> onProcessingChanged;
   final String approvalStatus;
   final ValueChanged<String> onApprovalChanged;
+  final String repairStatus;
+  final ValueChanged<String> onRepairStatusChanged;
   final String sort;
   final ValueChanged<String> onSortChanged;
   final bool grid;
@@ -390,12 +449,13 @@ class _Toolbar extends StatelessWidget {
             Row(children: [
               const Icon(Icons.search_rounded, color: Color(0xFF83948A)),
               const SizedBox(width: 7),
-              Expanded(child: TextField(controller: search, onChanged: onSearchChanged, onSubmitted: onSearchSubmitted, decoration: const InputDecoration(hintText: 'ค้นหาชื่อหรือข้อความในเอกสาร', border: InputBorder.none, filled: false, contentPadding: EdgeInsets.symmetric(vertical: 10)))),
+              Expanded(child: TextField(controller: search, onChanged: onSearchChanged, onSubmitted: onSearchSubmitted, decoration: const InputDecoration(hintText: 'ค้นหาชื่อ เนื้อหา ผู้ขาย หรือรายละเอียดอุปกรณ์', border: InputBorder.none, filled: false, contentPadding: EdgeInsets.symmetric(vertical: 10)))),
             ]),
             const Divider(height: 1, color: Color(0xFFEAF0EB)),
             const SizedBox(height: 5),
             Wrap(spacing: 3, runSpacing: 2, crossAxisAlignment: WrapCrossAlignment.center, children: [
               _FilterMenu<String>(label: _category.isEmpty ? 'ทุกประเภท' : _categoryLabel(_category), icon: Icons.filter_list_rounded, value: category, onSelected: onCategoryChanged, options: const [('', 'ทุกประเภท'), ('general', 'ไฟล์อัปโหลด'), ('po', 'PO'), ('pr', 'PR'), ('repair', 'แจ้งซ่อม')]),
+              if (category == 'repair') _FilterMenu<String>(label: repairStatus.isEmpty ? 'ทุกงานซ่อม' : _repairStatusLabel(repairStatus), icon: Icons.build_outlined, value: repairStatus, onSelected: onRepairStatusChanged, options: const [('', 'ทุกงานซ่อม'), ('reported', 'รับแจ้งแล้ว'), ('in_progress', 'กำลังซ่อม'), ('completed', 'ซ่อมเสร็จแล้ว')]),
               _FilterMenu<String>(label: _processingStatus.isEmpty ? 'ทุกสถานะ' : _processingLabel(_processingStatus), icon: Icons.sync_alt_rounded, value: processingStatus, onSelected: onProcessingChanged, options: const [('', 'ทุกสถานะ'), ('uploaded', 'Uploaded'), ('processing', 'Processing'), ('completed', 'Completed'), ('needs_review', 'Needs review'), ('failed', 'Failed')]),
               _FilterMenu<String>(label: _approvalStatus.isEmpty ? 'ทุกขั้นตอน' : _approvalLabel(_approvalStatus), icon: Icons.fact_check_outlined, value: approvalStatus, onSelected: onApprovalChanged, options: const [('', 'ทุกขั้นตอน'), ('draft', 'Draft'), ('pending', 'Pending'), ('approved', 'Approved'), ('rejected', 'Rejected')]),
               _FilterMenu<String>(label: _sortLabel(sort), icon: Icons.sort_rounded, value: sort, onSelected: onSortChanged, options: const [('updated_desc', 'แก้ไขล่าสุด'), ('updated_asc', 'แก้ไขเก่าสุด'), ('created_desc', 'สร้างใหม่สุด'), ('created_asc', 'สร้างเก่าสุด'), ('name_asc', 'ชื่อ A–Z'), ('name_desc', 'ชื่อ Z–A'), ('category_asc', 'ประเภท')]),
@@ -432,6 +492,13 @@ String _approvalLabel(String value) => switch (value) {
       _ => value,
     };
 
+String _repairStatusLabel(String value) => switch (value) {
+      'reported' => 'รับแจ้งแล้ว',
+      'in_progress' => 'กำลังซ่อม',
+      'completed' => 'ซ่อมเสร็จแล้ว',
+      _ => value,
+    };
+
 String _sortLabel(String value) => switch (value) {
       'updated_asc' => 'แก้ไขเก่าสุด',
       'created_desc' => 'สร้างใหม่สุด',
@@ -461,8 +528,9 @@ class _FilterMenu<T> extends StatelessWidget {
 }
 
 class _ListDocumentCard extends StatelessWidget {
-  const _ListDocumentCard({required this.document, required this.onOpen, required this.onAction});
+  const _ListDocumentCard({required this.document, required this.isDraft, required this.onOpen, required this.onAction});
   final Map<String, dynamic> document;
+  final bool isDraft;
   final VoidCallback onOpen;
   final ValueChanged<String> onAction;
 
@@ -472,15 +540,16 @@ class _ListDocumentCard extends StatelessWidget {
           onTap: onOpen,
           leading: _FileIcon(type: document['file_type']?.toString() ?? ''),
           title: Text(document['file_name']?.toString() ?? 'Document', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
-          subtitle: Padding(padding: const EdgeInsets.only(top: 5), child: Text('${document['category'] ?? 'general'}  ·  ${document['processing_status'] ?? 'uploaded'}  ·  ${document['updated_at'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: Color(0xFF728178)))),
-          trailing: _ActionsMenu(onSelected: onAction, hasFile: document['storage_key'] != null),
+          subtitle: Padding(padding: const EdgeInsets.only(top: 5), child: Text('${document['category'] ?? 'general'}  ·  ${_documentStatusLabel(document)}  ·  ${document['updated_at'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: Color(0xFF728178)))),
+          trailing: _ActionsMenu(onSelected: onAction, hasFile: document['storage_key'] != null, isDraft: isDraft),
         ),
       );
 }
 
 class _GridDocumentCard extends StatelessWidget {
-  const _GridDocumentCard({required this.document, required this.onOpen, required this.onAction});
+  const _GridDocumentCard({required this.document, required this.isDraft, required this.onOpen, required this.onAction});
   final Map<String, dynamic> document;
+  final bool isDraft;
   final VoidCallback onOpen;
   final ValueChanged<String> onAction;
 
@@ -492,11 +561,11 @@ class _GridDocumentCard extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.all(17),
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [_FileIcon(type: document['file_type']?.toString() ?? ''), const Spacer(), _ActionsMenu(onSelected: onAction, hasFile: document['storage_key'] != null)]),
+              Row(children: [_FileIcon(type: document['file_type']?.toString() ?? ''), const Spacer(), _ActionsMenu(onSelected: onAction, hasFile: document['storage_key'] != null, isDraft: isDraft)]),
               const Spacer(),
               Text(document['file_name']?.toString() ?? 'Document', maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
               const SizedBox(height: 7),
-              Text('${document['category'] ?? 'general'}  ·  ${document['processing_status'] ?? 'uploaded'}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: Color(0xFF728178))),
+              Text('${document['category'] ?? 'general'}  ·  ${_documentStatusLabel(document)}', maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: Color(0xFF728178))),
             ]),
           ),
         ),
@@ -520,10 +589,24 @@ class _FileIcon extends StatelessWidget {
   }
 }
 
+String _documentStatusLabel(Map<String, dynamic> document) {
+  if (document['category'] == 'repair') {
+    final metadata = document['metadata'];
+    final status = metadata is Map ? metadata['repair_status']?.toString() : null;
+    return switch (status) {
+      'in_progress' => 'กำลังซ่อม',
+      'completed' => 'ซ่อมเสร็จแล้ว',
+      _ => 'รับแจ้งแล้ว',
+    };
+  }
+  return document['processing_status']?.toString() ?? 'uploaded';
+}
+
 class _ActionsMenu extends StatelessWidget {
-  const _ActionsMenu({required this.onSelected, required this.hasFile});
+  const _ActionsMenu({required this.onSelected, required this.hasFile, required this.isDraft});
   final ValueChanged<String> onSelected;
   final bool hasFile;
+  final bool isDraft;
 
   @override
   Widget build(BuildContext context) => PopupMenuButton<String>(
@@ -531,6 +614,8 @@ class _ActionsMenu extends StatelessWidget {
         onSelected: onSelected,
         itemBuilder: (_) => [
           const PopupMenuItem(value: 'details', child: Text('รายละเอียด')),
+          if (isDraft) const PopupMenuItem(value: 'edit', child: Text('แก้ไขร่าง')),
+          if (isDraft) const PopupMenuItem(value: 'export', child: Text('ดาวน์โหลดเอกสาร Word')),
           if (hasFile) const PopupMenuItem(value: 'download', child: Text('บันทึกไฟล์ต้นฉบับ')),
           if (hasFile) const PopupMenuItem(value: 'reprocess', child: Text('ประมวลผลใหม่')),
           const PopupMenuItem(value: 'move', child: Text('ย้ายโฟลเดอร์')),

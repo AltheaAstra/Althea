@@ -131,6 +131,7 @@ def create_handler(store: Store) -> type[BaseHTTPRequestHandler]:
                         category=query.get("category", [""])[0],
                         approval_status=query.get("approval_status", [""])[0], limit=limit,
                         processing_status=query.get("processing_status", [""])[0],
+                        repair_status=query.get("repair_status", [""])[0],
                         sort=query.get("sort", ["updated_desc"])[0],
                     ))
                 if len(parts) == 4 and parts[:2] == ["api", "documents"] and parts[3] == "history":
@@ -138,6 +139,15 @@ def create_handler(store: Store) -> type[BaseHTTPRequestHandler]:
                 if len(parts) == 4 and parts[:2] == ["api", "documents"] and parts[3] == "download":
                     path, filename, mime = store.download_path(parts[2])
                     data = path.read_bytes()
+                    self.send_response(200)
+                    self.send_header("Content-Type", mime)
+                    self.send_header("Content-Length", str(len(data)))
+                    self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{quote(filename)}")
+                    self.end_headers()
+                    self.wfile.write(data)
+                    return
+                if len(parts) == 4 and parts[:2] == ["api", "documents"] and parts[3] == "export":
+                    data, filename, mime = store.export_document(parts[2])
                     self.send_response(200)
                     self.send_header("Content-Type", mime)
                     self.send_header("Content-Length", str(len(data)))
@@ -189,7 +199,10 @@ def create_handler(store: Store) -> type[BaseHTTPRequestHandler]:
                     payload = self._read_json()
                     return self._json_response(200, store.update_folder(_positive_int(parts[2], "folder_id"), payload))
                 if len(parts) == 3 and parts[:2] == ["api", "documents"]:
-                    return self._json_response(200, store.update_document(parts[2], self._read_json()))
+                    changes = self._read_json()
+                    if {"metadata", "title"} & set(changes):
+                        return self._json_response(200, store.update_draft(parts[2], changes))
+                    return self._json_response(200, store.update_document(parts[2], changes))
                 return self._error(404, "Route was not found.")
 
             if method == "DELETE":

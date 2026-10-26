@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  flutter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+      - name: Format Dart sources
+        run: dart format lib test
+      - name: Analyze Flutter app
+        run: flutter analyze
+      - name: Run Flutter tests
+        run: flutter test
+
+  windows_build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Generate Windows runner
+        run: flutter create --platforms=windows --project-name=seqotia .
+      - name: Resolve Flutter dependencies
+        run: flutter pub get
+      - name: Format Dart sources
+        run: dart format lib test
+      - name: Analyze Flutter app
+        run: flutter analyze
+      - name: Build Windows app
+        run: flutter build windows --release
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Compile backend modules
+        run: python -m compileall -q backend
+      - name: Run backend tests
+        run: python -m unittest discover -s backend/tests -v

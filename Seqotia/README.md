@@ -7,12 +7,14 @@ Seqotia เป็นพื้นที่ทำงานเอกสารแบ
 ## ฟีเจอร์ที่มีในชุดนี้
 
 - Dashboard และสถิติที่อ่านจำนวนจากฐานข้อมูลจริง แสดงเวลา `Asia/Bangkok` และสถานะว่างเมื่อยังไม่มีข้อมูล
-- Document Library แบบ List/Grid พร้อมค้นหา กรองประเภท ดู Metadata ประวัติ ย้ายโฟลเดอร์ บันทึกไฟล์ต้นฉบับ ประมวลผลซ้ำ และ Archive
+- Dashboard แสดงจำนวนงานซ่อมตามสถานะ และคลังเอกสารกรองรายการแจ้งซ่อมตามขั้นตอนได้
+- Document Library แบบ List/Grid พร้อมค้นหาชื่อ เนื้อหา และรายละเอียด PO/PR/แจ้งซ่อม กรองประเภท ดู Metadata ประวัติ ย้ายโฟลเดอร์ บันทึกไฟล์ต้นฉบับ ประมวลผลซ้ำ และ Archive
 - สร้าง Folder และ Subfolder, เปลี่ยนชื่อ, เปิดดูเอกสารใน Folder และป้องกันการย้าย Folder เข้าไปในตัวเองหรือ Descendant
 - อัปโหลด PDF, DOCX, XLSX, PPTX และ TXT สูงสุด 25 MB ต่อไฟล์ (ปรับได้)
 - Extract ข้อความจาก TXT และเอกสาร Office แบบ XML; PDF จะ Extract ได้เมื่อติดตั้ง PyMuPDF และ PDF มี selectable text
 - Document Studio สำหรับ PO, PR และ Repair Request พร้อม Form Validation, รายการสินค้าหลายแถว และการคำนวณยอดรวมด้วย Decimal ฝั่ง Backend
-- เก็บเอกสารที่สร้างใน Studio เป็น Draft; ระบบไม่สร้างเลข PO/PR และไม่อนุมัติเอกสารเอง
+- Repair Request ติดตามสถานะรับแจ้ง / กำลังซ่อม / ซ่อมเสร็จ พร้อมช่างผู้รับผิดชอบ ผลตรวจสอบ งานซ่อม อะไหล่ วันที่ และค่าใช้จ่าย
+- แก้ไข Draft จาก Document Studio ได้ โดยบันทึกเวอร์ชันและประวัติการแก้ไข และส่งออก PO, PR, ใบแจ้งซ่อมเป็นไฟล์ Word ที่แก้ไขต่อได้; ระบบไม่สร้างเลข PO/PR และไม่อนุมัติเอกสารเอง
 - AI Suggestion endpoint เป็น **ข้อความจำลอง** ที่ระบุแหล่งที่มาเป็น Demo ชัดเจน ไม่มีการเรียกโมเดลภายนอกหรือใช้เอกสารเก่ามาเติมข้อเท็จจริง
 - API ในเครื่องใช้ Python standard library, SQLite และจัดเก็บ Upload ใน Local App Data โดยปริยาย
 
@@ -162,23 +164,11 @@ GitHub Actions รันคำสั่ง Flutter เหล่านี้แ�
 
 ## เตรียม GitHub
 
-Repository นี้เริ่มจากโฟลเดอร์ว่างและยังไม่มี Remote; งานนี้ไม่ Push และไม่สร้าง Commit ให้ ตรวจไฟล์ก่อนเพิ่ม GitHub Remote:
+Source ของ Seqotia อยู่ในโฟลเดอร์ `Seqotia/` ภายใน Repository `AltheaAstra/Althea` ตรวจการเปลี่ยนแปลงจาก root ของ Repository ด้วย:
 
 ```powershell
 git status --short --branch
-git diff --check
-git ls-files --others --exclude-standard
+git diff --check -- Seqotia
 ```
 
-เมื่อสร้าง GitHub Repository แล้ว จึงกำหนด URL จริงที่ได้รับจาก GitHub และ Push ด้วยตนเอง:
-
-```powershell
-git remote add origin <GITHUB_REPOSITORY_URL>
-git add .
-git status --short
-git diff --cached --check
-git commit -m "Build Seqotia document workspace MVP"
-git push -u origin main
-```
-
-อย่าเพิ่ม `.env`, ฐานข้อมูล หรือโฟลเดอร์ Uploads เข้า Git โดยเด็ดขาด
+อย่าเพิ่ม `.env`, ฐานข้อมูล, ไฟล์ Uploads, Python caches หรือ credentials เข้า Git โดยเด็ดขาด

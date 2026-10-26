@@ -1,14 +1,16 @@
 import 'dart:async';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import '../../app/workspace_widgets.dart';
 import '../../core/api_client.dart';
 
 class DocumentStudioView extends StatefulWidget {
-  const DocumentStudioView({required this.api, this.initialCategory, super.key});
+  const DocumentStudioView({required this.api, this.initialCategory, this.initialDocument, super.key});
   final SeqotiaApi api;
   final String? initialCategory;
+  final Map<String, dynamic>? initialDocument;
 
   @override
   State<DocumentStudioView> createState() => _DocumentStudioViewState();
@@ -21,6 +23,7 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
   late Future<List<Map<String, dynamic>>> _templates;
   String _category = 'po';
   String _urgency = 'normal';
+  String _repairStatus = 'reported';
   String? _suggestionField;
   String? _suggestionId;
   String? _suggestionError;
@@ -28,22 +31,68 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
   Timer? _suggestionTimer;
   bool _loadingSuggestion = false;
   bool _saving = false;
+  String? _draftId;
 
   @override
   void initState() {
     super.initState();
-    if (['po', 'pr', 'repair'].contains(widget.initialCategory)) {
-      _category = widget.initialCategory!;
-    }
-    _templates = widget.api.templates();
     _put('document_date', _today());
     _put('request_date', _today());
     _put('report_date', _today());
+    final document = widget.initialDocument;
+    if (document != null && ['po', 'pr', 'repair'].contains(document['category'])) {
+      _category = document['category'].toString();
+      _draftId = document['id']?.toString();
+      _loadDraft(Map<String, dynamic>.from(document['metadata'] as Map? ?? const {}));
+    } else if (['po', 'pr', 'repair'].contains(widget.initialCategory)) {
+      _category = widget.initialCategory!;
+    }
+    _templates = widget.api.templates();
+  }
+
+  void _loadDraft(Map<String, dynamic> metadata) {
+    for (final entry in metadata.entries) {
+      final key = entry.key == 'reference' && _category == 'pr' ? 'pr_reference' :
+          entry.key == 'notes' && _category == 'repair' ? 'repair_notes' : entry.key;
+      if (entry.value is! List && entry.value is! Map) {
+        _put(key, entry.value?.toString() ?? '');
+      }
+    }
+    if (_category == 'repair' && ['low', 'normal', 'high'].contains(metadata['urgency'])) {
+      _urgency = metadata['urgency'].toString();
+    }
+    if (_category == 'repair' && ['reported', 'in_progress', 'completed'].contains(metadata['repair_status'])) {
+      _repairStatus = metadata['repair_status'].toString();
+    }
+    final savedItems = metadata['items'];
+    if ((_category == 'po' || _category == 'pr') && savedItems is List && savedItems.isNotEmpty) {
+      for (final item in _items) {
+        item.dispose();
+      }
+      _items
+        ..clear()
+        ..addAll(savedItems.whereType<Map>().map((value) {
+          final item = _LineItem();
+          item.name.text = value['name']?.toString() ?? '';
+          item.quantity.text = value['quantity']?.toString() ?? '1';
+          item.unit.text = value['unit']?.toString() ?? '';
+          item.unitPrice.text = value['unit_price']?.toString() ?? '0';
+          return item;
+        }));
+      if (_items.isEmpty) _items.add(_LineItem());
+    }
   }
 
   String _today() {
     final now = DateTime.now();
     return '${now.year.toString().padLeft(4, '0')}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+  }
+
+  String _docxFilename(String title) {
+    var fileName = title.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_').trim();
+    if (fileName.isEmpty) fileName = 'seqotia-document';
+    if (!fileName.toLowerCase().endsWith('.docx')) fileName += '.docx';
+    return fileName;
   }
 
   TextEditingController _controller(String key) =>
@@ -205,10 +254,11 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
         return sum + quantity * price;
       });
 
-  Future<void> _save() async {
+  Future<void> _save({bool downloadWord = false}) async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
     try {
+      final creating = _draftId == null;
       final metadata = <String, dynamic>{};
       switch (_category) {
         case 'po':
@@ -244,6 +294,13 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
             'location': _controller('location').text.trim(),
             'issue_description': _controller('issue_description').text.trim(),
             'urgency': _urgency,
+            'repair_status': _repairStatus,
+            'technician_name': _controller('technician_name').text.trim(),
+            'diagnosis': _controller('diagnosis').text.trim(),
+            'work_performed': _controller('work_performed').text.trim(),
+            'parts_used': _controller('parts_used').text.trim(),
+            'repair_cost': _controller('repair_cost').text.trim(),
+            'completed_date': _controller('completed_date').text.trim(),
             'notes': _controller('repair_notes').text.trim(),
           });
           break;
@@ -253,16 +310,40 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
         'pr' => 'PR · ${_controller('purpose').text.trim()}',
         _ => 'แจ้งซ่อม · ${_controller('equipment_name').text.trim()}',
       };
-      final saved = await widget.api.saveDraft(
-        category: _category,
-        title: title.length > 255 ? title.substring(0, 255) : title,
-        metadata: metadata,
-      );
+      final safeTitle = title.length > 255 ? title.substring(0, 255) : title;
+      final saved = _draftId == null
+          ? await widget.api.saveDraft(
+              category: _category,
+              title: safeTitle,
+              metadata: metadata,
+            )
+          : await widget.api.updateDraft(
+              id: _draftId!,
+              title: safeTitle,
+              metadata: metadata,
+            );
+      if (!mounted) return;
+      _draftId ??= saved['id']?.toString();
+      var downloaded = false;
+      if (downloadWord && _draftId != null) {
+        final path = await FilePicker.saveFile(
+          dialogTitle: 'บันทึกเอกสาร Word',
+          fileName: _docxFilename(safeTitle),
+        );
+        if (path != null) {
+          await widget.api.exportDocument(_draftId!, path);
+          downloaded = true;
+        }
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('บันทึกร่างแล้ว · ${saved['approval_status']}')),
+        SnackBar(content: Text('${creating ? 'บันทึกร่างแล้ว' : 'อัปเดตร่างแล้ว'}${downloaded ? 'และบันทึก Word แล้ว' : ''} · ${saved['approval_status']}')),
       );
-      Navigator.pushReplacementNamed(context, '/documents');
+      if (creating) {
+        Navigator.pushReplacementNamed(context, '/documents');
+      } else {
+        Navigator.pop(context);
+      }
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
     } finally {
@@ -273,13 +354,15 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
   @override
   Widget build(BuildContext context) => WorkspacePageFrame(
         title: 'Document Studio',
-        subtitle: 'สร้างเอกสารจากแม่แบบ · ระบบจะบันทึกเป็นร่างเพื่อให้คุณตรวจสอบก่อน',
+        subtitle: _draftId == null
+            ? 'สร้างเอกสารจากแม่แบบ · ระบบจะบันทึกเป็นร่างเพื่อให้คุณตรวจสอบก่อน'
+            : 'แก้ไขร่างเอกสาร · บันทึกแต่ละครั้งจะเพิ่มรายการในประวัติ',
         actions: FilledButton.icon(
-          onPressed: _saving ? null : _save,
+          onPressed: _saving ? null : () => _save(),
           icon: _saving
               ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
               : const Icon(Icons.save_outlined, size: 18),
-          label: Text(_saving ? 'กำลังบันทึก' : 'บันทึกร่าง'),
+          label: Text(_saving ? 'กำลังบันทึก' : _draftId == null ? 'บันทึกร่าง' : 'บันทึกการแก้ไข'),
         ),
         body: FutureBuilder<List<Map<String, dynamic>>>(
           future: _templates,
@@ -291,7 +374,7 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
                 _TemplateSelector(
                   templates: snapshot.data ?? _fallbackTemplates,
                   selected: _category,
-                  onChanged: _changeCategory,
+                  onChanged: _draftId == null ? _changeCategory : null,
                   error: snapshot.hasError,
                 ),
                 const SizedBox(height: 14),
@@ -301,6 +384,15 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
                     child: Text('ใช้แม่แบบตัวอย่างในเครื่อง · ตรวจสอบการเชื่อมต่อ Backend', style: TextStyle(color: Color(0xFF9B6B18), fontSize: 11)),
                   ),
                 _formCard(context),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: _saving ? null : () => _save(downloadWord: true),
+                    icon: const Icon(Icons.file_download_outlined),
+                    label: const Text('บันทึกและดาวน์โหลดเอกสาร Word'),
+                  ),
+                ),
                 const SizedBox(height: 18),
                 const _DraftDisclaimer(),
                 const SizedBox(height: 28),
@@ -350,9 +442,55 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
         _responsiveFields([_field('asset_id', 'หมายเลขอุปกรณ์ / Asset ID'), _field('location', 'สถานที่ติดตั้ง')]),
         _field('issue_description', 'อาการเสีย *', validator: _required, maxLines: 4, suggestion: true),
         Row(children: [const Text('ระดับความเร่งด่วน', style: TextStyle(fontSize: 12, color: Color(0xFF536A5D))), const SizedBox(width: 14), DropdownButton<String>(value: _urgency, items: const [DropdownMenuItem(value: 'low', child: Text('ต่ำ')), DropdownMenuItem(value: 'normal', child: Text('ปกติ')), DropdownMenuItem(value: 'high', child: Text('เร่งด่วน'))], onChanged: (value) { if (value != null) setState(() => _urgency = value); })]),
+        const SizedBox(height: 8),
+        Row(children: [
+          const Text('สถานะงานซ่อม', style: TextStyle(fontSize: 12, color: Color(0xFF536A5D))),
+          const SizedBox(width: 14),
+          DropdownButton<String>(
+            value: _repairStatus,
+            items: const [
+              DropdownMenuItem(value: 'reported', child: Text('รับแจ้งแล้ว')),
+              DropdownMenuItem(value: 'in_progress', child: Text('กำลังซ่อม')),
+              DropdownMenuItem(value: 'completed', child: Text('ซ่อมเสร็จแล้ว')),
+            ],
+            onChanged: (value) {
+              if (value == null) return;
+              setState(() {
+                _repairStatus = value;
+                if (value == 'completed' && _controller('completed_date').text.isEmpty) {
+                  _put('completed_date', _today());
+                }
+              });
+            },
+          ),
+        ]),
+        if (_repairStatus != 'reported') ...[
+          _responsiveFields([
+            _field('technician_name', _repairStatus == 'completed' ? 'ช่างผู้รับผิดชอบ *' : 'ช่างผู้รับผิดชอบ', validator: _repairStatus == 'completed' ? _required : null),
+            _field('completed_date', 'วันที่ซ่อมเสร็จ', hint: 'YYYY-MM-DD', validator: _repairStatus == 'completed' ? _required : null),
+          ]),
+          _field('diagnosis', 'สาเหตุ / ผลการตรวจสอบ', maxLines: 2),
+          _field('work_performed', _repairStatus == 'completed' ? 'รายละเอียดงานที่ซ่อม *' : 'รายละเอียดงานที่ซ่อม', maxLines: 3, validator: _repairStatus == 'completed' ? _required : null),
+          _responsiveFields([
+            _field('parts_used', 'อะไหล่ที่ใช้', maxLines: 2),
+            _field('repair_cost', 'ค่าใช้จ่ายรวม (บาท)', keyboardType: const TextInputType.numberWithOptions(decimal: true), validator: _optionalCost),
+          ]),
+        ],
         const SizedBox(height: 10),
         _field('repair_notes', 'หมายเหตุ', maxLines: 2, suggestion: true),
       ]);
+
+  String? _optionalCost(String? value) {
+    if (value == null || value.trim().isEmpty) return null;
+    final pieces = value.trim().split('.');
+    if (pieces.length > 2 || (pieces.length == 2 && pieces.last.length > 2)) {
+      return 'กรอกทศนิยมได้ไม่เกิน 2 ตำแหน่ง';
+    }
+    final amount = double.tryParse(value.trim());
+    return amount == null || !amount.isFinite || amount < 0
+        ? 'กรอกค่าใช้จ่ายเป็นตัวเลขตั้งแต่ 0 ขึ้นไป'
+        : null;
+  }
 
   Widget _responsiveFields(List<Widget> children) => LayoutBuilder(builder: (context, constraints) {
         final columns = constraints.maxWidth < 650 ? 1 : 2;
@@ -427,7 +565,7 @@ class _TemplateSelector extends StatelessWidget {
   const _TemplateSelector({required this.templates, required this.selected, required this.onChanged, required this.error});
   final List<Map<String, dynamic>> templates;
   final String selected;
-  final ValueChanged<String?> onChanged;
+  final ValueChanged<String?>? onChanged;
   final bool error;
 
   @override

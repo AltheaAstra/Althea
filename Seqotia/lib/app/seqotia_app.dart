@@ -96,6 +96,11 @@ class SeqotiaApp extends StatelessWidget {
           builder: (_) => WorkspaceShell(
             activePage: selected,
             initialTemplate: template,
+            initialDocumentCategory: routeArgs['category'] is String ? routeArgs['category'] as String : null,
+            initialRepairStatus: routeArgs['repairStatus'] is String ? routeArgs['repairStatus'] as String : null,
+            initialDocument: routeArgs['document'] is Map
+                ? Map<String, dynamic>.from(routeArgs['document'] as Map)
+                : null,
             initialFolderId: routeArgs['folderId'] is int ? routeArgs['folderId'] as int : null,
             initialFolderName: routeArgs['folderName'] is String ? routeArgs['folderName'] as String : null,
           ),

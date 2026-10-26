@@ -1,0 +1,55 @@
+# Flutter / Dart
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+coverage/
+.flutter-plugins
+.flutter-plugins-dependencies
+windows/flutter/ephemeral/
+linux/flutter/ephemeral/
+macos/Flutter/GeneratedPluginRegistrant.swift
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# Local configuration and credentials
+.env
+.env.*
+!.env.example
+backend/.env
+*.pem
+*.key
+credentials.json
+service-account*.json
+
+# Local databases, uploads, logs, and generated AI data
+*.sqlite
+*.sqlite3
+*.db
+backend/data/
+data/
+uploads/
+*.log
+*.tmp
+*.cache
+models/
+embeddings/
+
+# IDE and operating system files
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+*.iml
+.DS_Store
+Thumbs.db
+Desktop.ini

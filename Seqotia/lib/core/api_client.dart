@@ -62,6 +62,7 @@ class SeqotiaApi {
     String category = '',
     String approvalStatus = '',
     String processingStatus = '',
+    String repairStatus = '',
     String sort = 'updated_desc',
   }) =>
       _request(
@@ -71,6 +72,7 @@ class SeqotiaApi {
           if (category.isNotEmpty) 'category': category,
           if (approvalStatus.isNotEmpty) 'approval_status': approvalStatus,
           if (processingStatus.isNotEmpty) 'processing_status': processingStatus,
+          if (repairStatus.isNotEmpty) 'repair_status': repairStatus,
           'sort': sort,
         }),
         _asList,
@@ -134,6 +136,19 @@ class SeqotiaApi {
         _asMap,
       );
 
+  Future<Map<String, dynamic>> updateDraft({
+    required String id,
+    required String title,
+    required Map<String, dynamic> metadata,
+  }) =>
+      _request(
+        () => dio.patch('/api/documents/$id', data: {
+          'title': title,
+          'metadata': metadata,
+        }),
+        _asMap,
+      );
+
   Future<Map<String, dynamic>> suggest({
     required String documentType,
     required String field,
@@ -177,6 +192,13 @@ class SeqotiaApi {
   Future<void> downloadDocument(String id, String path) async {
     await _request(
       () => dio.download('/api/documents/$id/download', path),
+      (data) => data,
+    );
+  }
+
+  Future<void> exportDocument(String id, String path) async {
+    await _request(
+      () => dio.download('/api/documents/$id/export', path),
       (data) => data,
     );
   }

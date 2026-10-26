@@ -92,6 +92,17 @@ class _DashboardViewState extends State<DashboardView> {
                       ],
                     );
                   }),
+                  const SizedBox(height: 12),
+                  _RepairSummary(
+                    reported: data['repair_reported'],
+                    inProgress: data['repair_in_progress'],
+                    completed: data['repair_completed'],
+                    onOpen: (status) => Navigator.pushReplacementNamed(
+                      context,
+                      '/documents',
+                      arguments: {'category': 'repair', 'repairStatus': status},
+                    ),
+                  ),
                   const SizedBox(height: 22),
                   _QuickActions(uploading: _uploading, onUpload: _upload),
                   const SizedBox(height: 22),
@@ -102,6 +113,55 @@ class _DashboardViewState extends State<DashboardView> {
               ),
             );
           },
+        ),
+      );
+}
+
+class _RepairSummary extends StatelessWidget {
+  const _RepairSummary({required this.reported, required this.inProgress, required this.completed, required this.onOpen});
+  final Object? reported;
+  final Object? inProgress;
+  final Object? completed;
+  final ValueChanged<String> onOpen;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: Padding(
+          padding: const EdgeInsets.all(17),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            const Text('สถานะงานซ่อม', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF1A3527))),
+            const SizedBox(height: 13),
+            Row(children: [
+              Expanded(child: _RepairCount(label: 'รับแจ้งแล้ว', count: reported, color: const Color(0xFFB77A1E), onTap: () => onOpen('reported'))),
+              Expanded(child: _RepairCount(label: 'กำลังซ่อม', count: inProgress, color: const Color(0xFF2876A3), onTap: () => onOpen('in_progress'))),
+              Expanded(child: _RepairCount(label: 'ซ่อมเสร็จแล้ว', count: completed, color: const Color(0xFF28744E), onTap: () => onOpen('completed'))),
+            ]),
+          ]),
+        ),
+      );
+}
+
+class _RepairCount extends StatelessWidget {
+  const _RepairCount({required this.label, required this.count, required this.color, required this.onTap});
+  final String label;
+  final Object? count;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+          child: Row(children: [
+            Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+            const SizedBox(width: 8),
+            Flexible(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('$count', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700, color: color)),
+              Text(label, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 10, color: Color(0xFF718178))),
+            ])),
+          ]),
         ),
       );
 }

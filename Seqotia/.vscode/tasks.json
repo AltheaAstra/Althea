@@ -1,0 +1,78 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Seqotia: Install prerequisites",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\setup_windows.ps1"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated"
+      }
+    },
+    {
+      "label": "Seqotia: Backend",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\ensure_backend.ps1"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "seqotia-backend",
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "Seqotia backend starting",
+          "endsPattern": "Seqotia (local API listening at http://127\\.0\\.0\\.1:[0-9]+|backend already ready at http://127\\.0\\.0\\.1:[0-9]+)"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "seqotia"
+      }
+    },
+    {
+      "label": "Seqotia: Prepare Flutter",
+      "type": "process",
+      "command": "powershell.exe",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "${workspaceFolder}\\scripts\\prepare_flutter.ps1"
+      ],
+      "problemMatcher": [],
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "seqotia"
+      }
+    },
+    {
+      "label": "Seqotia: Start",
+      "dependsOn": [
+        "Seqotia: Backend",
+        "Seqotia: Prepare Flutter"
+      ],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    }
+  ]
+}
