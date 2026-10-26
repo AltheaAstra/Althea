@@ -7,6 +7,7 @@ from pathlib import Path
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
+from backend.app.ai.provider import DemoSuggestionProvider
 from backend.app.db.store import Store
 from backend.app.main import create_handler
 
@@ -15,7 +16,8 @@ class ApiSmokeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         root = Path(self.temporary.name)
-        store = Store(root / "seqotia.sqlite3", root / "uploads", 1024 * 1024)
+        store = Store(root / "seqotia.sqlite3", root / "uploads", 1024 * 1024,
+                      suggestion_provider=DemoSuggestionProvider())
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), create_handler(store))
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()

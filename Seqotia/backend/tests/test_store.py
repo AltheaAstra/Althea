@@ -4,6 +4,7 @@ import zipfile
 from io import BytesIO
 from pathlib import Path
 
+from backend.app.ai.provider import DemoSuggestionProvider
 from backend.app.db.store import Store, StoreError
 
 
@@ -31,7 +32,8 @@ class StoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         root = Path(self.temporary.name)
-        self.store = Store(root / "seqotia.sqlite3", root / "uploads", 1024 * 1024)
+        self.store = Store(root / "seqotia.sqlite3", root / "uploads", 1024 * 1024,
+                           suggestion_provider=DemoSuggestionProvider())
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -101,7 +103,8 @@ class StoreTests(unittest.TestCase):
         with self.assertRaises(StoreError) as unsupported:
             self.store.upload_document("archive.zip", b"PK", "application/zip")
         self.assertEqual(unsupported.exception.status_code, 415)
-        small_store = Store(self.store.database_path.parent / "small.sqlite3", self.store.upload_dir, 3)
+        small_store = Store(self.store.database_path.parent / "small.sqlite3", self.store.upload_dir, 3,
+                            suggestion_provider=DemoSuggestionProvider())
         with self.assertRaises(StoreError) as size:
             small_store.upload_document("large.txt", b"four", "text/plain")
         self.assertEqual(size.exception.status_code, 413)

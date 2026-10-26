@@ -30,6 +30,12 @@ function Test-SeqotiaCppToolchain {
     return -not [string]::IsNullOrWhiteSpace(($installPath | Select-Object -First 1))
 }
 
+function Test-SeqotiaDeveloperMode {
+    $setting = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' `
+        -Name 'AllowDevelopmentWithoutDevLicense' -ErrorAction SilentlyContinue
+    return $setting.AllowDevelopmentWithoutDevLicense -eq 1
+}
+
 $flutterRoot = Join-Path $env:LOCALAPPDATA 'Programs\flutter'
 $flutterExecutable = Join-Path $flutterRoot 'bin\flutter.bat'
 $flutterFromPath = Get-Command flutter -ErrorAction SilentlyContinue
@@ -55,8 +61,22 @@ if (-not (Test-Path -LiteralPath $flutterExecutable -PathType Leaf)) {
     New-Item -ItemType Directory -Path $programsDirectory -Force | Out-Null
     $archivePath = Join-Path $env:TEMP "seqotia-flutter-$($stableRelease.version).zip"
     try {
+        $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+        if ($null -eq $curl) {
+            throw 'curl.exe was not found. Install Windows updates or download Flutter manually from the official Flutter site.'
+        }
+
         $archiveUrl = "$($releaseMetadata.base_url)/$($stableRelease.archive)"
-        Invoke-WebRequest -Uri $archiveUrl -OutFile $archivePath
+        & $curl.Source --fail --location --retry 3 --retry-delay 2 --progress-bar --output $archivePath $archiveUrl
+        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $archivePath -PathType Leaf)) {
+            throw 'Flutter download failed. Check your internet connection and run this setup task again.'
+        }
+
+        $archiveHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($archiveHash -ne ([string]$stableRelease.sha256).ToLowerInvariant()) {
+            throw 'The downloaded Flutter archive failed its SHA-256 check.'
+        }
+
         Expand-Archive -LiteralPath $archivePath -DestinationPath $programsDirectory -Force
     } finally {
         if (Test-Path -LiteralPath $archivePath -PathType Leaf) {
@@ -110,6 +130,12 @@ if (-not (Test-SeqotiaCppToolchain)) {
 $codeCommand = Get-Command code -ErrorAction SilentlyContinue
 if ($null -ne $codeCommand) {
     & $codeCommand.Source --install-extension Dart-Code.flutter
+}
+
+if (-not (Test-SeqotiaDeveloperMode)) {
+    Write-Warning 'Flutter and Visual Studio prerequisites are installed, but Windows Developer Mode is off.'
+    Write-Warning 'Enable Developer Mode in Settings > System > Advanced > For developers, then run this setup task again.'
+    throw 'Flutter Windows setup is paused until Developer Mode is enabled for plugin symlinks.'
 }
 
 Write-Host 'Enabling Flutter Windows desktop and preparing the project...'

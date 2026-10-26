@@ -7,7 +7,12 @@ import '../../app/workspace_widgets.dart';
 import '../../core/api_client.dart';
 
 class DocumentStudioView extends StatefulWidget {
-  const DocumentStudioView({required this.api, this.initialCategory, this.initialDocument, super.key});
+  const DocumentStudioView({
+    required this.api,
+    this.initialCategory,
+    this.initialDocument,
+    super.key,
+  });
   final SeqotiaApi api;
   final String? initialCategory;
   final Map<String, dynamic>? initialDocument;
@@ -28,6 +33,7 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
   String? _suggestionId;
   String? _suggestionError;
   List<Map<String, dynamic>> _suggestions = [];
+  bool? _suggestionsAreMock;
   Timer? _suggestionTimer;
   bool _loadingSuggestion = false;
   bool _saving = false;
@@ -40,10 +46,13 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
     _put('request_date', _today());
     _put('report_date', _today());
     final document = widget.initialDocument;
-    if (document != null && ['po', 'pr', 'repair'].contains(document['category'])) {
+    if (document != null &&
+        ['po', 'pr', 'repair'].contains(document['category'])) {
       _category = document['category'].toString();
       _draftId = document['id']?.toString();
-      _loadDraft(Map<String, dynamic>.from(document['metadata'] as Map? ?? const {}));
+      _loadDraft(
+        Map<String, dynamic>.from(document['metadata'] as Map? ?? const {}),
+      );
     } else if (['po', 'pr', 'repair'].contains(widget.initialCategory)) {
       _category = widget.initialCategory!;
     }
@@ -52,33 +61,47 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
 
   void _loadDraft(Map<String, dynamic> metadata) {
     for (final entry in metadata.entries) {
-      final key = entry.key == 'reference' && _category == 'pr' ? 'pr_reference' :
-          entry.key == 'notes' && _category == 'repair' ? 'repair_notes' : entry.key;
+      final key =
+          entry.key == 'reference' && _category == 'pr'
+              ? 'pr_reference'
+              : entry.key == 'notes' && _category == 'repair'
+              ? 'repair_notes'
+              : entry.key;
       if (entry.value is! List && entry.value is! Map) {
         _put(key, entry.value?.toString() ?? '');
       }
     }
-    if (_category == 'repair' && ['low', 'normal', 'high'].contains(metadata['urgency'])) {
+    if (_category == 'repair' &&
+        ['low', 'normal', 'high'].contains(metadata['urgency'])) {
       _urgency = metadata['urgency'].toString();
     }
-    if (_category == 'repair' && ['reported', 'in_progress', 'completed'].contains(metadata['repair_status'])) {
+    if (_category == 'repair' &&
+        [
+          'reported',
+          'in_progress',
+          'completed',
+        ].contains(metadata['repair_status'])) {
       _repairStatus = metadata['repair_status'].toString();
     }
     final savedItems = metadata['items'];
-    if ((_category == 'po' || _category == 'pr') && savedItems is List && savedItems.isNotEmpty) {
+    if ((_category == 'po' || _category == 'pr') &&
+        savedItems is List &&
+        savedItems.isNotEmpty) {
       for (final item in _items) {
         item.dispose();
       }
       _items
         ..clear()
-        ..addAll(savedItems.whereType<Map>().map((value) {
-          final item = _LineItem();
-          item.name.text = value['name']?.toString() ?? '';
-          item.quantity.text = value['quantity']?.toString() ?? '1';
-          item.unit.text = value['unit']?.toString() ?? '';
-          item.unitPrice.text = value['unit_price']?.toString() ?? '0';
-          return item;
-        }));
+        ..addAll(
+          savedItems.whereType<Map>().map((value) {
+            final item = _LineItem();
+            item.name.text = value['name']?.toString() ?? '';
+            item.quantity.text = value['quantity']?.toString() ?? '1';
+            item.unit.text = value['unit']?.toString() ?? '';
+            item.unitPrice.text = value['unit_price']?.toString() ?? '0';
+            return item;
+          }),
+        );
       if (_items.isEmpty) _items.add(_LineItem());
     }
   }
@@ -89,7 +112,8 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
   }
 
   String _docxFilename(String title) {
-    var fileName = title.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_').trim();
+    var fileName =
+        title.replaceAll(RegExp(r'[\\/:*?"<>|\x00-\x1F]'), '_').trim();
     if (fileName.isEmpty) fileName = 'seqotia-document';
     if (!fileName.toLowerCase().endsWith('.docx')) fileName += '.docx';
     return fileName;
@@ -119,6 +143,7 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
       _suggestionField = null;
       _suggestionId = null;
       _suggestions = [];
+      _suggestionsAreMock = null;
       _suggestionError = null;
       _loadingSuggestion = false;
     });
@@ -129,6 +154,7 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
     if (text.trim().isEmpty) {
       setState(() {
         _suggestions = [];
+        _suggestionsAreMock = null;
         _suggestionField = null;
         _suggestionError = null;
       });
@@ -138,6 +164,7 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
       _suggestionField = field;
       _suggestionId = null;
       _suggestions = [];
+      _suggestionsAreMock = null;
       _suggestionError = null;
       _loadingSuggestion = false;
     });
@@ -157,9 +184,11 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
         if (!mounted || _controller(field).text.trim() != text.trim()) return;
         setState(() {
           _suggestionId = result['suggestion_id']?.toString();
-          _suggestions = (result['suggestions'] as List? ?? const [])
-              .map((item) => Map<String, dynamic>.from(item as Map))
-              .toList();
+          _suggestionsAreMock = result['is_mock'] == true;
+          _suggestions =
+              (result['suggestions'] as List? ?? const [])
+                  .map((item) => Map<String, dynamic>.from(item as Map))
+                  .toList();
         });
       } catch (_) {
         if (mounted) {
@@ -219,40 +248,44 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
     TextInputType? keyboardType,
     String? hint,
     bool suggestion = false,
-  }) =>
-      Padding(
-        padding: const EdgeInsets.only(bottom: 13),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          TextFormField(
-            controller: _controller(key),
-            validator: validator,
-            maxLines: maxLines,
-            keyboardType: keyboardType,
-            onChanged: suggestion ? (value) => _queueSuggestion(key, value) : null,
-            decoration: InputDecoration(
-              labelText: label,
-              hintText: hint,
-              alignLabelWithHint: maxLines > 1,
-            ),
+  }) => Padding(
+    padding: const EdgeInsets.only(bottom: 13),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextFormField(
+          controller: _controller(key),
+          validator: validator,
+          maxLines: maxLines,
+          keyboardType: keyboardType,
+          onChanged:
+              suggestion ? (value) => _queueSuggestion(key, value) : null,
+          decoration: InputDecoration(
+            labelText: label,
+            hintText: hint,
+            alignLabelWithHint: maxLines > 1,
           ),
-          if (suggestion && _suggestionField == key)
-            _SuggestionPanel(
-              suggestions: _suggestions,
-              loading: _loadingSuggestion,
-              error: _suggestionError,
-              onAccept: _acceptSuggestion,
-              onDismiss: _dismissSuggestions,
-            ),
-        ]),
-      );
+        ),
+        if (suggestion && _suggestionField == key)
+          _SuggestionPanel(
+            suggestions: _suggestions,
+            isMock: _suggestionsAreMock,
+            loading: _loadingSuggestion,
+            error: _suggestionError,
+            onAccept: _acceptSuggestion,
+            onDismiss: _dismissSuggestions,
+          ),
+      ],
+    ),
+  );
 
   List<_LineItem> get _activeItems => _items;
 
   double get _estimatedTotal => _activeItems.fold<double>(0, (sum, item) {
-        final quantity = double.tryParse(item.quantity.text) ?? 0;
-        final price = double.tryParse(item.unitPrice.text) ?? 0;
-        return sum + quantity * price;
-      });
+    final quantity = double.tryParse(item.quantity.text) ?? 0;
+    final price = double.tryParse(item.unitPrice.text) ?? 0;
+    return sum + quantity * price;
+  });
 
   Future<void> _save({bool downloadWord = false}) async {
     if (!_formKey.currentState!.validate()) return;
@@ -311,17 +344,18 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
         _ => 'แจ้งซ่อม · ${_controller('equipment_name').text.trim()}',
       };
       final safeTitle = title.length > 255 ? title.substring(0, 255) : title;
-      final saved = _draftId == null
-          ? await widget.api.saveDraft(
-              category: _category,
-              title: safeTitle,
-              metadata: metadata,
-            )
-          : await widget.api.updateDraft(
-              id: _draftId!,
-              title: safeTitle,
-              metadata: metadata,
-            );
+      final saved =
+          _draftId == null
+              ? await widget.api.saveDraft(
+                category: _category,
+                title: safeTitle,
+                metadata: metadata,
+              )
+              : await widget.api.updateDraft(
+                id: _draftId!,
+                title: safeTitle,
+                metadata: metadata,
+              );
       if (!mounted) return;
       _draftId ??= saved['id']?.toString();
       var downloaded = false;
@@ -337,7 +371,11 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
       }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${creating ? 'บันทึกร่างแล้ว' : 'อัปเดตร่างแล้ว'}${downloaded ? 'และบันทึก Word แล้ว' : ''} · ${saved['approval_status']}')),
+        SnackBar(
+          content: Text(
+            '${creating ? 'บันทึกร่างแล้ว' : 'อัปเดตร่างแล้ว'}${downloaded ? 'และบันทึก Word แล้ว' : ''} · ${saved['approval_status']}',
+          ),
+        ),
       );
       if (creating) {
         Navigator.pushReplacementNamed(context, '/documents');
@@ -345,7 +383,11 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
         Navigator.pop(context);
       }
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.toString())));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error.toString())));
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -353,20 +395,36 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
 
   @override
   Widget build(BuildContext context) => WorkspacePageFrame(
-        title: 'Document Studio',
-        subtitle: _draftId == null
+    title: 'Document Studio',
+    subtitle:
+        _draftId == null
             ? 'สร้างเอกสารจากแม่แบบ · ระบบจะบันทึกเป็นร่างเพื่อให้คุณตรวจสอบก่อน'
             : 'แก้ไขร่างเอกสาร · บันทึกแต่ละครั้งจะเพิ่มรายการในประวัติ',
-        actions: FilledButton.icon(
-          onPressed: _saving ? null : () => _save(),
-          icon: _saving
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+    actions: FilledButton.icon(
+      onPressed: _saving ? null : () => _save(),
+      icon:
+          _saving
+              ? const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: Colors.white,
+                ),
+              )
               : const Icon(Icons.save_outlined, size: 18),
-          label: Text(_saving ? 'กำลังบันทึก' : _draftId == null ? 'บันทึกร่าง' : 'บันทึกการแก้ไข'),
-        ),
-        body: FutureBuilder<List<Map<String, dynamic>>>(
-          future: _templates,
-          builder: (context, snapshot) => Form(
+      label: Text(
+        _saving
+            ? 'กำลังบันทึก'
+            : _draftId == null
+            ? 'บันทึกร่าง'
+            : 'บันทึกการแก้ไข',
+      ),
+    ),
+    body: FutureBuilder<List<Map<String, dynamic>>>(
+      future: _templates,
+      builder:
+          (context, snapshot) => Form(
             key: _formKey,
             child: ListView(
               padding: EdgeInsets.zero,
@@ -381,7 +439,10 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
                 if (snapshot.hasError)
                   const Padding(
                     padding: EdgeInsets.only(bottom: 12),
-                    child: Text('ใช้แม่แบบตัวอย่างในเครื่อง · ตรวจสอบการเชื่อมต่อ Backend', style: TextStyle(color: Color(0xFF9B6B18), fontSize: 11)),
+                    child: Text(
+                      'ใช้แม่แบบตัวอย่างในเครื่อง · ตรวจสอบการเชื่อมต่อ Backend',
+                      style: TextStyle(color: Color(0xFF9B6B18), fontSize: 11),
+                    ),
                   ),
                 _formCard(context),
                 const SizedBox(height: 8),
@@ -399,86 +460,200 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
               ],
             ),
           ),
-        ),
-      );
+    ),
+  );
 
   Widget _formCard(BuildContext context) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(_categoryTitle, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF193526))),
-            const SizedBox(height: 5),
-            const Text('ช่องที่มีเครื่องหมายดอกจันต้องกรอกก่อนบันทึก', style: TextStyle(color: Color(0xFF79877F), fontSize: 11)),
-            const SizedBox(height: 18),
-            if (_category == 'po') _purchaseOrderForm(),
-            if (_category == 'pr') _purchaseRequestForm(),
-            if (_category == 'repair') _repairForm(),
-          ]),
-        ),
-      );
+    child: Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _categoryTitle,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF193526),
+            ),
+          ),
+          const SizedBox(height: 5),
+          const Text(
+            'ช่องที่มีเครื่องหมายดอกจันต้องกรอกก่อนบันทึก',
+            style: TextStyle(color: Color(0xFF79877F), fontSize: 11),
+          ),
+          const SizedBox(height: 18),
+          if (_category == 'po') _purchaseOrderForm(),
+          if (_category == 'pr') _purchaseRequestForm(),
+          if (_category == 'repair') _repairForm(),
+        ],
+      ),
+    ),
+  );
 
   String get _categoryTitle => switch (_category) {
-        'po' => 'ใบสั่งซื้อ (Purchase Order)',
-        'pr' => 'ใบขอซื้อ (Purchase Requisition)',
-        _ => 'ใบแจ้งซ่อมอุปกรณ์ (Repair Request)',
-      };
+    'po' => 'ใบสั่งซื้อ (Purchase Order)',
+    'pr' => 'ใบขอซื้อ (Purchase Requisition)',
+    _ => 'ใบแจ้งซ่อมอุปกรณ์ (Repair Request)',
+  };
 
-  Widget _purchaseOrderForm() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _responsiveFields([_field('po_number', 'เลข PO (ถ้ามี)'), _field('document_date', 'วันที่เอกสาร', hint: 'YYYY-MM-DD'), _field('vendor', 'ผู้ขาย *', validator: _required)]),
-        _itemsEditor(),
-        const SizedBox(height: 12),
-        _responsiveFields([_field('reference', 'เลขที่อ้างอิง'), _field('terms', 'เงื่อนไข'), _field('notes', 'หมายเหตุ', maxLines: 2, suggestion: true)]),
-      ]);
+  Widget _purchaseOrderForm() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _responsiveFields([
+        _field('po_number', 'เลข PO (ถ้ามี)'),
+        _field('document_date', 'วันที่เอกสาร', hint: 'YYYY-MM-DD'),
+        _field('vendor', 'ผู้ขาย *', validator: _required),
+      ]),
+      _itemsEditor(),
+      const SizedBox(height: 12),
+      _responsiveFields([
+        _field('reference', 'เลขที่อ้างอิง'),
+        _field('terms', 'เงื่อนไข'),
+        _field('notes', 'หมายเหตุ', maxLines: 2, suggestion: true),
+      ]),
+    ],
+  );
 
-  Widget _purchaseRequestForm() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _responsiveFields([_field('pr_number', 'เลข PR (ถ้ามี)'), _field('request_date', 'วันที่ขอซื้อ', hint: 'YYYY-MM-DD'), _field('requester', 'ผู้ขอ *', validator: _required), _field('department', 'แผนก / หน่วยงาน *', validator: _required)]),
-        _field('purpose', 'วัตถุประสงค์ *', validator: _required, maxLines: 2, suggestion: true),
-        _itemsEditor(),
-        _responsiveFields([_field('justification', 'เหตุผลความจำเป็น', maxLines: 2, suggestion: true), _field('pr_reference', 'ข้อมูลอ้างอิง')]),
-      ]);
+  Widget _purchaseRequestForm() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _responsiveFields([
+        _field('pr_number', 'เลข PR (ถ้ามี)'),
+        _field('request_date', 'วันที่ขอซื้อ', hint: 'YYYY-MM-DD'),
+        _field('requester', 'ผู้ขอ *', validator: _required),
+        _field('department', 'แผนก / หน่วยงาน *', validator: _required),
+      ]),
+      _field(
+        'purpose',
+        'วัตถุประสงค์ *',
+        validator: _required,
+        maxLines: 2,
+        suggestion: true,
+      ),
+      _itemsEditor(),
+      _responsiveFields([
+        _field(
+          'justification',
+          'เหตุผลความจำเป็น',
+          maxLines: 2,
+          suggestion: true,
+        ),
+        _field('pr_reference', 'ข้อมูลอ้างอิง'),
+      ]),
+    ],
+  );
 
-  Widget _repairForm() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _responsiveFields([_field('request_number', 'เลขที่แจ้งซ่อม (ถ้ามี)'), _field('report_date', 'วันที่แจ้ง', hint: 'YYYY-MM-DD'), _field('reporter', 'ผู้แจ้ง *', validator: _required), _field('equipment_name', 'ชื่ออุปกรณ์ *', validator: _required)]),
-        _responsiveFields([_field('asset_id', 'หมายเลขอุปกรณ์ / Asset ID'), _field('location', 'สถานที่ติดตั้ง')]),
-        _field('issue_description', 'อาการเสีย *', validator: _required, maxLines: 4, suggestion: true),
-        Row(children: [const Text('ระดับความเร่งด่วน', style: TextStyle(fontSize: 12, color: Color(0xFF536A5D))), const SizedBox(width: 14), DropdownButton<String>(value: _urgency, items: const [DropdownMenuItem(value: 'low', child: Text('ต่ำ')), DropdownMenuItem(value: 'normal', child: Text('ปกติ')), DropdownMenuItem(value: 'high', child: Text('เร่งด่วน'))], onChanged: (value) { if (value != null) setState(() => _urgency = value); })]),
-        const SizedBox(height: 8),
-        Row(children: [
-          const Text('สถานะงานซ่อม', style: TextStyle(fontSize: 12, color: Color(0xFF536A5D))),
+  Widget _repairForm() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      _responsiveFields([
+        _field('request_number', 'เลขที่แจ้งซ่อม (ถ้ามี)'),
+        _field('report_date', 'วันที่แจ้ง', hint: 'YYYY-MM-DD'),
+        _field('reporter', 'ผู้แจ้ง *', validator: _required),
+        _field('equipment_name', 'ชื่ออุปกรณ์ *', validator: _required),
+      ]),
+      _responsiveFields([
+        _field('asset_id', 'หมายเลขอุปกรณ์ / Asset ID'),
+        _field('location', 'สถานที่ติดตั้ง'),
+      ]),
+      _field(
+        'issue_description',
+        'อาการเสีย *',
+        validator: _required,
+        maxLines: 4,
+        suggestion: true,
+      ),
+      Row(
+        children: [
+          const Text(
+            'ระดับความเร่งด่วน',
+            style: TextStyle(fontSize: 12, color: Color(0xFF536A5D)),
+          ),
+          const SizedBox(width: 14),
+          DropdownButton<String>(
+            value: _urgency,
+            items: const [
+              DropdownMenuItem(value: 'low', child: Text('ต่ำ')),
+              DropdownMenuItem(value: 'normal', child: Text('ปกติ')),
+              DropdownMenuItem(value: 'high', child: Text('เร่งด่วน')),
+            ],
+            onChanged: (value) {
+              if (value != null) setState(() => _urgency = value);
+            },
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      Row(
+        children: [
+          const Text(
+            'สถานะงานซ่อม',
+            style: TextStyle(fontSize: 12, color: Color(0xFF536A5D)),
+          ),
           const SizedBox(width: 14),
           DropdownButton<String>(
             value: _repairStatus,
             items: const [
               DropdownMenuItem(value: 'reported', child: Text('รับแจ้งแล้ว')),
               DropdownMenuItem(value: 'in_progress', child: Text('กำลังซ่อม')),
-              DropdownMenuItem(value: 'completed', child: Text('ซ่อมเสร็จแล้ว')),
+              DropdownMenuItem(
+                value: 'completed',
+                child: Text('ซ่อมเสร็จแล้ว'),
+              ),
             ],
             onChanged: (value) {
               if (value == null) return;
               setState(() {
                 _repairStatus = value;
-                if (value == 'completed' && _controller('completed_date').text.isEmpty) {
+                if (value == 'completed' &&
+                    _controller('completed_date').text.isEmpty) {
                   _put('completed_date', _today());
                 }
               });
             },
           ),
-        ]),
-        if (_repairStatus != 'reported') ...[
-          _responsiveFields([
-            _field('technician_name', _repairStatus == 'completed' ? 'ช่างผู้รับผิดชอบ *' : 'ช่างผู้รับผิดชอบ', validator: _repairStatus == 'completed' ? _required : null),
-            _field('completed_date', 'วันที่ซ่อมเสร็จ', hint: 'YYYY-MM-DD', validator: _repairStatus == 'completed' ? _required : null),
-          ]),
-          _field('diagnosis', 'สาเหตุ / ผลการตรวจสอบ', maxLines: 2),
-          _field('work_performed', _repairStatus == 'completed' ? 'รายละเอียดงานที่ซ่อม *' : 'รายละเอียดงานที่ซ่อม', maxLines: 3, validator: _repairStatus == 'completed' ? _required : null),
-          _responsiveFields([
-            _field('parts_used', 'อะไหล่ที่ใช้', maxLines: 2),
-            _field('repair_cost', 'ค่าใช้จ่ายรวม (บาท)', keyboardType: const TextInputType.numberWithOptions(decimal: true), validator: _optionalCost),
-          ]),
         ],
-        const SizedBox(height: 10),
-        _field('repair_notes', 'หมายเหตุ', maxLines: 2, suggestion: true),
-      ]);
+      ),
+      if (_repairStatus != 'reported') ...[
+        _responsiveFields([
+          _field(
+            'technician_name',
+            _repairStatus == 'completed'
+                ? 'ช่างผู้รับผิดชอบ *'
+                : 'ช่างผู้รับผิดชอบ',
+            validator: _repairStatus == 'completed' ? _required : null,
+          ),
+          _field(
+            'completed_date',
+            'วันที่ซ่อมเสร็จ',
+            hint: 'YYYY-MM-DD',
+            validator: _repairStatus == 'completed' ? _required : null,
+          ),
+        ]),
+        _field('diagnosis', 'สาเหตุ / ผลการตรวจสอบ', maxLines: 2),
+        _field(
+          'work_performed',
+          _repairStatus == 'completed'
+              ? 'รายละเอียดงานที่ซ่อม *'
+              : 'รายละเอียดงานที่ซ่อม',
+          maxLines: 3,
+          validator: _repairStatus == 'completed' ? _required : null,
+        ),
+        _responsiveFields([
+          _field('parts_used', 'อะไหล่ที่ใช้', maxLines: 2),
+          _field(
+            'repair_cost',
+            'ค่าใช้จ่ายรวม (บาท)',
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            validator: _optionalCost,
+          ),
+        ]),
+      ],
+      const SizedBox(height: 10),
+      _field('repair_notes', 'หมายเหตุ', maxLines: 2, suggestion: true),
+    ],
+  );
 
   String? _optionalCost(String? value) {
     if (value == null || value.trim().isEmpty) return null;
@@ -492,23 +667,72 @@ class _DocumentStudioViewState extends State<DocumentStudioView> {
         : null;
   }
 
-  Widget _responsiveFields(List<Widget> children) => LayoutBuilder(builder: (context, constraints) {
-        final columns = constraints.maxWidth < 650 ? 1 : 2;
-        if (columns == 1) return Column(children: children);
-        return Wrap(spacing: 14, runSpacing: 1, children: [for (final child in children) SizedBox(width: (constraints.maxWidth - 14) / 2, child: child)]);
-      });
+  Widget _responsiveFields(List<Widget> children) => LayoutBuilder(
+    builder: (context, constraints) {
+      final columns = constraints.maxWidth < 650 ? 1 : 2;
+      if (columns == 1) return Column(children: children);
+      return Wrap(
+        spacing: 14,
+        runSpacing: 1,
+        children: [
+          for (final child in children)
+            SizedBox(width: (constraints.maxWidth - 14) / 2, child: child),
+        ],
+      );
+    },
+  );
 
-  Widget _itemsEditor() => Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [const Expanded(child: Text('รายการสินค้าและบริการ *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: Color(0xFF294636)))), TextButton.icon(onPressed: () => setState(() => _items.add(_LineItem())), icon: const Icon(Icons.add_rounded, size: 17), label: const Text('เพิ่มรายการ'))]),
-        for (var index = 0; index < _items.length; index++)
-          _LineItemEditor(
-            index: index,
-            item: _items[index],
-            onChanged: () => setState(() {}),
-            onRemove: _items.length == 1 ? null : () => setState(() { final removed = _items.removeAt(index); removed.dispose(); }),
+  Widget _itemsEditor() => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'รายการสินค้าและบริการ *',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF294636),
+              ),
+            ),
           ),
-        Padding(padding: const EdgeInsets.only(top: 10, bottom: 14), child: Align(alignment: Alignment.centerRight, child: Text('ยอดรวมโดยประมาณ  ฿${_estimatedTotal.toStringAsFixed(2)}', style: const TextStyle(color: Color(0xFF1D6746), fontWeight: FontWeight.w700, fontSize: 13)))),
-      ]);
+          TextButton.icon(
+            onPressed: () => setState(() => _items.add(_LineItem())),
+            icon: const Icon(Icons.add_rounded, size: 17),
+            label: const Text('เพิ่มรายการ'),
+          ),
+        ],
+      ),
+      for (var index = 0; index < _items.length; index++)
+        _LineItemEditor(
+          index: index,
+          item: _items[index],
+          onChanged: () => setState(() {}),
+          onRemove:
+              _items.length == 1
+                  ? null
+                  : () => setState(() {
+                    final removed = _items.removeAt(index);
+                    removed.dispose();
+                  }),
+        ),
+      Padding(
+        padding: const EdgeInsets.only(top: 10, bottom: 14),
+        child: Align(
+          alignment: Alignment.centerRight,
+          child: Text(
+            'ยอดรวมโดยประมาณ  ฿${_estimatedTotal.toStringAsFixed(2)}',
+            style: const TextStyle(
+              color: Color(0xFF1D6746),
+              fontWeight: FontWeight.w700,
+              fontSize: 13,
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
 }
 
 class _LineItem {
@@ -518,11 +742,11 @@ class _LineItem {
   final unitPrice = TextEditingController(text: '0');
 
   Map<String, dynamic> toPayload() => {
-        'name': name.text.trim(),
-        'quantity': quantity.text.trim(),
-        'unit': unit.text.trim(),
-        'unit_price': unitPrice.text.trim().isEmpty ? '0' : unitPrice.text.trim(),
-      };
+    'name': name.text.trim(),
+    'quantity': quantity.text.trim(),
+    'unit': unit.text.trim(),
+    'unit_price': unitPrice.text.trim().isEmpty ? '0' : unitPrice.text.trim(),
+  };
 
   void dispose() {
     name.dispose();
@@ -533,7 +757,12 @@ class _LineItem {
 }
 
 class _LineItemEditor extends StatelessWidget {
-  const _LineItemEditor({required this.index, required this.item, required this.onChanged, this.onRemove});
+  const _LineItemEditor({
+    required this.index,
+    required this.item,
+    required this.onChanged,
+    this.onRemove,
+  });
   final int index;
   final _LineItem item;
   final VoidCallback onChanged;
@@ -541,28 +770,120 @@ class _LineItemEditor extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        margin: const EdgeInsets.only(bottom: 9),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(color: const Color(0xFFF5F8F5), borderRadius: BorderRadius.circular(15)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [Expanded(child: Text('รายการ ${index + 1}', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 11, color: Color(0xFF54705F)))), if (onRemove != null) IconButton(visualDensity: VisualDensity.compact, tooltip: 'ลบรายการ', onPressed: onRemove, icon: const Icon(Icons.close_rounded, size: 17))]),
-          LayoutBuilder(builder: (context, constraints) {
+    margin: const EdgeInsets.only(bottom: 9),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: const Color(0xFFF5F8F5),
+      borderRadius: BorderRadius.circular(15),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'รายการ ${index + 1}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 11,
+                  color: Color(0xFF54705F),
+                ),
+              ),
+            ),
+            if (onRemove != null)
+              IconButton(
+                visualDensity: VisualDensity.compact,
+                tooltip: 'ลบรายการ',
+                onPressed: onRemove,
+                icon: const Icon(Icons.close_rounded, size: 17),
+              ),
+          ],
+        ),
+        LayoutBuilder(
+          builder: (context, constraints) {
             final narrow = constraints.maxWidth < 620;
             final fields = [
-              TextFormField(controller: item.name, onChanged: (_) => onChanged(), validator: (value) => value == null || value.trim().isEmpty ? 'กรุณาระบุรายการ' : null, decoration: const InputDecoration(labelText: 'รายการ *')),
-              TextFormField(controller: item.quantity, onChanged: (_) => onChanged(), keyboardType: const TextInputType.numberWithOptions(decimal: true), validator: (value) { final number = double.tryParse(value ?? ''); return number == null || !number.isFinite || number <= 0 ? 'จำนวนต้องมากกว่า 0' : null; }, decoration: const InputDecoration(labelText: 'จำนวน *')),
-              TextFormField(controller: item.unit, onChanged: (_) => onChanged(), decoration: const InputDecoration(labelText: 'หน่วย')),
-              TextFormField(controller: item.unitPrice, onChanged: (_) => onChanged(), keyboardType: const TextInputType.numberWithOptions(decimal: true), validator: (value) { final number = double.tryParse(value ?? '0'); return number == null || !number.isFinite || number < 0 ? 'ราคาไม่ถูกต้อง' : null; }, decoration: const InputDecoration(labelText: 'ราคาต่อหน่วย')),
+              TextFormField(
+                controller: item.name,
+                onChanged: (_) => onChanged(),
+                validator:
+                    (value) =>
+                        value == null || value.trim().isEmpty
+                            ? 'กรุณาระบุรายการ'
+                            : null,
+                decoration: const InputDecoration(labelText: 'รายการ *'),
+              ),
+              TextFormField(
+                controller: item.quantity,
+                onChanged: (_) => onChanged(),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                validator: (value) {
+                  final number = double.tryParse(value ?? '');
+                  return number == null || !number.isFinite || number <= 0
+                      ? 'จำนวนต้องมากกว่า 0'
+                      : null;
+                },
+                decoration: const InputDecoration(labelText: 'จำนวน *'),
+              ),
+              TextFormField(
+                controller: item.unit,
+                onChanged: (_) => onChanged(),
+                decoration: const InputDecoration(labelText: 'หน่วย'),
+              ),
+              TextFormField(
+                controller: item.unitPrice,
+                onChanged: (_) => onChanged(),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                validator: (value) {
+                  final number = double.tryParse(value ?? '0');
+                  return number == null || !number.isFinite || number < 0
+                      ? 'ราคาไม่ถูกต้อง'
+                      : null;
+                },
+                decoration: const InputDecoration(labelText: 'ราคาต่อหน่วย'),
+              ),
             ];
-            if (narrow) return Column(children: [for (final field in fields) Padding(padding: const EdgeInsets.only(bottom: 9), child: field)]);
-            return Row(children: [Expanded(flex: 4, child: fields[0]), const SizedBox(width: 9), Expanded(child: fields[1]), const SizedBox(width: 9), Expanded(child: fields[2]), const SizedBox(width: 9), Expanded(flex: 2, child: fields[3])]);
-          }),
-        ]),
-      );
+            if (narrow) {
+              return Column(
+                children: [
+                  for (final field in fields)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 9),
+                      child: field,
+                    ),
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(flex: 4, child: fields[0]),
+                const SizedBox(width: 9),
+                Expanded(child: fields[1]),
+                const SizedBox(width: 9),
+                Expanded(child: fields[2]),
+                const SizedBox(width: 9),
+                Expanded(flex: 2, child: fields[3]),
+              ],
+            );
+          },
+        ),
+      ],
+    ),
+  );
 }
 
 class _TemplateSelector extends StatelessWidget {
-  const _TemplateSelector({required this.templates, required this.selected, required this.onChanged, required this.error});
+  const _TemplateSelector({
+    required this.templates,
+    required this.selected,
+    required this.onChanged,
+    required this.error,
+  });
   final List<Map<String, dynamic>> templates;
   final String selected;
   final ValueChanged<String?>? onChanged;
@@ -574,14 +895,57 @@ class _TemplateSelector extends StatelessWidget {
     return Card(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child: Row(children: [
-          Container(width: 38, height: 38, decoration: BoxDecoration(color: const Color(0xFFEAF5EF), borderRadius: BorderRadius.circular(12)), child: const Icon(Icons.article_outlined, color: Color(0xFF28744E))),
-          const SizedBox(width: 12),
-          const Text('แม่แบบ', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-          const SizedBox(width: 12),
-          Expanded(child: DropdownButton<String>(isExpanded: true, value: options.any((item) => item['category'] == selected) ? selected : options.first['category']?.toString(), underline: const SizedBox.shrink(), items: [for (final item in options) DropdownMenuItem(value: item['category']?.toString(), child: Text(item['name']?.toString() ?? item['category'].toString()))], onChanged: onChanged)),
-          if (error) const Tooltip(message: 'กำลังใช้แม่แบบตัวอย่างที่มาพร้อมแอป', child: Icon(Icons.info_outline_rounded, size: 18, color: Color(0xFF9B6B18))),
-        ]),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF5EF),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Icon(
+                Icons.article_outlined,
+                color: Color(0xFF28744E),
+              ),
+            ),
+            const SizedBox(width: 12),
+            const Text(
+              'แม่แบบ',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: DropdownButton<String>(
+                isExpanded: true,
+                value:
+                    options.any((item) => item['category'] == selected)
+                        ? selected
+                        : options.first['category']?.toString(),
+                underline: const SizedBox.shrink(),
+                items: [
+                  for (final item in options)
+                    DropdownMenuItem(
+                      value: item['category']?.toString(),
+                      child: Text(
+                        item['name']?.toString() ?? item['category'].toString(),
+                      ),
+                    ),
+                ],
+                onChanged: onChanged,
+              ),
+            ),
+            if (error)
+              const Tooltip(
+                message: 'กำลังใช้แม่แบบตัวอย่างที่มาพร้อมแอป',
+                child: Icon(
+                  Icons.info_outline_rounded,
+                  size: 18,
+                  color: Color(0xFF9B6B18),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -594,8 +958,16 @@ const _fallbackTemplates = <Map<String, dynamic>>[
 ];
 
 class _SuggestionPanel extends StatelessWidget {
-  const _SuggestionPanel({required this.suggestions, required this.loading, required this.error, required this.onAccept, required this.onDismiss});
+  const _SuggestionPanel({
+    required this.suggestions,
+    required this.isMock,
+    required this.loading,
+    required this.error,
+    required this.onAccept,
+    required this.onDismiss,
+  });
   final List<Map<String, dynamic>> suggestions;
+  final bool? isMock;
   final bool loading;
   final String? error;
   final ValueChanged<String> onAccept;
@@ -603,19 +975,89 @@ class _SuggestionPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (!loading && suggestions.isEmpty && error == null) return const SizedBox.shrink();
+    if (!loading && suggestions.isEmpty && error == null) {
+      return const SizedBox.shrink();
+    }
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(top: 8),
       padding: const EdgeInsets.all(11),
-      decoration: BoxDecoration(color: const Color(0xFFFFF7E7), borderRadius: BorderRadius.circular(13), border: Border.all(color: const Color(0xFFF2E2BD))),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Row(children: [const Icon(Icons.auto_awesome_outlined, size: 15, color: Color(0xFF9B6B18)), const SizedBox(width: 6), const Expanded(child: Text('ตัวอย่างข้อความจำลอง · ตรวจสอบก่อนเลือก', style: TextStyle(fontSize: 10, color: Color(0xFF856018), fontWeight: FontWeight.w600))), if (loading) const SizedBox(width: 13, height: 13, child: CircularProgressIndicator(strokeWidth: 1.8)), if (!loading) IconButton(onPressed: onDismiss, tooltip: 'ปิดคำแนะนำ', visualDensity: VisualDensity.compact, icon: const Icon(Icons.close, size: 16))]),
-        if (loading && suggestions.isEmpty) const Padding(padding: EdgeInsets.all(7), child: Text('กำลังขอข้อความตัวอย่าง…', style: TextStyle(fontSize: 11, color: Color(0xFF856018)))),
-        if (error != null) Padding(padding: const EdgeInsets.all(7), child: Text(error!, style: const TextStyle(fontSize: 11, color: Color(0xFF856018)))),
-        for (final suggestion in suggestions)
-          Padding(padding: const EdgeInsets.only(top: 5), child: ActionChip(label: Text(suggestion['text'].toString(), maxLines: 2, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11)), onPressed: () => onAccept(suggestion['text'].toString()))),
-      ]),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7E7),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: const Color(0xFFF2E2BD)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.auto_awesome_outlined,
+                size: 15,
+                color: Color(0xFF9B6B18),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  isMock == true
+                      ? 'ข้อความตัวอย่างจำลอง · ตรวจสอบก่อนเลือก'
+                      : isMock == false
+                      ? 'คำแนะนำจาก AI · ตรวจสอบก่อนเลือก'
+                      : 'คำแนะนำ · ตรวจสอบก่อนเลือก',
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Color(0xFF856018),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              if (loading)
+                const SizedBox(
+                  width: 13,
+                  height: 13,
+                  child: CircularProgressIndicator(strokeWidth: 1.8),
+                ),
+              if (!loading)
+                IconButton(
+                  onPressed: onDismiss,
+                  tooltip: 'ปิดคำแนะนำ',
+                  visualDensity: VisualDensity.compact,
+                  icon: const Icon(Icons.close, size: 16),
+                ),
+            ],
+          ),
+          if (loading && suggestions.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(7),
+              child: Text(
+                'กำลังสร้างคำแนะนำ…',
+                style: TextStyle(fontSize: 11, color: Color(0xFF856018)),
+              ),
+            ),
+          if (error != null)
+            Padding(
+              padding: const EdgeInsets.all(7),
+              child: Text(
+                error!,
+                style: const TextStyle(fontSize: 11, color: Color(0xFF856018)),
+              ),
+            ),
+          for (final suggestion in suggestions)
+            Padding(
+              padding: const EdgeInsets.only(top: 5),
+              child: ActionChip(
+                label: Text(
+                  suggestion['text'].toString(),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 11),
+                ),
+                onPressed: () => onAccept(suggestion['text'].toString()),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
@@ -625,8 +1067,27 @@ class _DraftDisclaimer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(color: const Color(0xFFEAF3ED), borderRadius: BorderRadius.circular(15)),
-        child: const Row(crossAxisAlignment: CrossAxisAlignment.start, children: [Icon(Icons.fact_check_outlined, size: 18, color: Color(0xFF3F7C59)), SizedBox(width: 9), Expanded(child: Text('เอกสารนี้จะบันทึกเป็นร่าง เลขที่ PO/PR ต้องกรอกหรือกำหนดโดยระบบขององค์กร ข้อความแนะนำเป็นตัวอย่างจำลองและไม่มีผลอนุมัติเอกสาร', style: TextStyle(fontSize: 11, color: Color(0xFF4F715A), height: 1.45)))]),
-      );
+    padding: const EdgeInsets.all(14),
+    decoration: BoxDecoration(
+      color: const Color(0xFFEAF3ED),
+      borderRadius: BorderRadius.circular(15),
+    ),
+    child: const Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(Icons.fact_check_outlined, size: 18, color: Color(0xFF3F7C59)),
+        SizedBox(width: 9),
+        Expanded(
+          child: Text(
+            'เอกสารนี้จะบันทึกเป็นร่าง เลขที่ PO/PR ต้องกรอกหรือกำหนดโดยระบบขององค์กร คำแนะนำอาจมาจาก Demo หรือ AI โปรดตรวจสอบก่อนใช้และไม่มีผลอนุมัติเอกสาร',
+            style: TextStyle(
+              fontSize: 11,
+              color: Color(0xFF4F715A),
+              height: 1.45,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }

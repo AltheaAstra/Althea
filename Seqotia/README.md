@@ -15,7 +15,7 @@ Seqotia เป็นพื้นที่ทำงานเอกสารแบ
 - Document Studio สำหรับ PO, PR และ Repair Request พร้อม Form Validation, รายการสินค้าหลายแถว และการคำนวณยอดรวมด้วย Decimal ฝั่ง Backend
 - Repair Request ติดตามสถานะรับแจ้ง / กำลังซ่อม / ซ่อมเสร็จ พร้อมช่างผู้รับผิดชอบ ผลตรวจสอบ งานซ่อม อะไหล่ วันที่ และค่าใช้จ่าย
 - แก้ไข Draft จาก Document Studio ได้ โดยบันทึกเวอร์ชันและประวัติการแก้ไข และส่งออก PO, PR, ใบแจ้งซ่อมเป็นไฟล์ Word ที่แก้ไขต่อได้; ระบบไม่สร้างเลข PO/PR และไม่อนุมัติเอกสารเอง
-- AI Suggestion endpoint เป็น **ข้อความจำลอง** ที่ระบุแหล่งที่มาเป็น Demo ชัดเจน ไม่มีการเรียกโมเดลภายนอกหรือใช้เอกสารเก่ามาเติมข้อเท็จจริง
+- AI Suggestions ใช้ Demo Mode โดยปริยาย หรือเลือก OpenAI Responses API ได้ผ่าน Backend environment; ส่งเฉพาะข้อความในช่องที่กำลังขอคำแนะนำ และผู้ใช้ต้องตรวจสอบก่อนนำไปใช้
 - API ในเครื่องใช้ Python standard library, SQLite และจัดเก็บ Upload ใน Local App Data โดยปริยาย
 
 ## สถาปัตยกรรม
@@ -27,7 +27,7 @@ flowchart LR
   API --> SQLite[(SQLite metadata, drafts, history)]
   API --> Files[Local upload storage]
   API --> Parsers[TXT / DOCX / XLSX / PPTX / optional PDF extraction]
-  API --> MockAI[Explicit demo suggestions]
+  API --> AI[Demo provider or optional OpenAI Responses API]
 ```
 
 ## เทคโนโลยี
@@ -36,7 +36,7 @@ flowchart LR
 - Backend: Python 3.10+, `http.server`, `sqlite3`, ตัวประมวลผลไฟล์แยกตาม Format
 - Database: SQLite พร้อม initial schema migration
 - File storage: `%LOCALAPPDATA%\Seqotia\uploads` บน Windows; เก็บไฟล์ออกจาก Source Code
-- AI: Demo provider แบบคงที่เท่านั้น ไม่มี OpenAI API Key หรือค่าใช้บริการ
+- AI: Demo provider โดยปริยาย; optional OpenAI adapter ใช้ Python standard library
 
 ## โครงสร้าง
 
@@ -52,6 +52,7 @@ test/                        Flutter widget tests
 ## ข้อกำหนดก่อนเริ่ม
 
 - Flutter SDK ที่มี Dart SDK `>=3.7.0` และ Windows Desktop tooling หากต้องการรันเป็น Windows app; เพิ่มโฟลเดอร์ `flutter\bin` ลงใน `PATH` แล้วเปิด PowerShell ใหม่
+- เปิด Windows Developer Mode เพื่อให้ Flutter plugins สร้าง symbolic links ได้
 - การ Build Windows app ต้องติดตั้ง Visual Studio (ไม่ใช่ VS Code) พร้อม Workload `Desktop development with C++` ดู [คู่มือตั้งค่า Flutter สำหรับ Windows](https://docs.flutter.dev/platform-integration/windows/setup)
 - Python 3.10 ขึ้นไป
 - Git สำหรับ Repository ที่จะเผยแพร่
@@ -69,7 +70,20 @@ test/                        Flutter widget tests
 
 Task `Seqotia: Start` จะเปิด Backend ให้เอง ตรวจสุขภาพ API สร้าง Windows Runner เมื่อยังไม่มี และเรียก `flutter pub get` ก่อนเริ่มแอป หากต้องการเปิด Backend อย่างเดียว ให้เลือก `Terminal` → `Run Task...` → `Seqotia: Backend` แล้วหยุดด้วย `Ctrl+C` ใน Terminal นั้น
 
-การติดตั้งครั้งแรกดาวน์โหลด Flutter SDK และอาจติดตั้ง Visual Studio Build Tools ขนาดใหญ่ผ่าน `winget`; Windows อาจขอสิทธิ์ผู้ดูแลระบบสำหรับ Build Tools การรันครั้งถัดไปใช้ `F5` ได้เลย
+การติดตั้งครั้งแรกดาวน์โหลด Flutter SDK และอาจติดตั้ง Visual Studio Build Tools ขนาดใหญ่ผ่าน `winget`; Windows อาจขอสิทธิ์ผู้ดูแลระบบสำหรับ Build Tools เปิด Developer Mode ใน Settings (`System → Advanced → For developers`) ก่อนกด F5 การรันครั้งถัดไปใช้ `F5` ได้เลย
+
+## เปิดใช้ AI Suggestions ผ่าน OpenAI
+
+Demo Mode เป็นค่าเริ่มต้นและไม่ส่งข้อความออกจากเครื่อง หากต้องการเปิดคำแนะนำจริง ให้แก้ `backend\.env` ดังนี้ แล้วเริ่ม Backend ใหม่:
+
+```dotenv
+AI_PROVIDER=openai
+OPENAI_API_KEY=ใส่คีย์ของคุณที่นี่
+OPENAI_MODEL=gpt-6-astra
+OPENAI_TIMEOUT_SECONDS=20
+```
+
+คีย์อยู่ใน Backend เท่านั้น ห้ามใส่คีย์ใน Flutter, Source Code หรือ Git ผู้ให้บริการจะได้รับเฉพาะประเภทเอกสาร ชื่อช่อง และข้อความในช่องที่ผู้ใช้กดขอคำแนะนำ ระบบไม่ส่งไฟล์หรือประวัติเอกสารอื่นไปประกอบคำตอบ คำแนะนำไม่ถูกบันทึกลงเอกสารโดยอัตโนมัติ และต้องตรวจสอบก่อนใช้งาน
 
 ## รัน Backend บน Windows PowerShell
 
@@ -148,15 +162,16 @@ GitHub Actions รันคำสั่ง Flutter เหล่านี้แ�
 - Local API ไม่มี FastAPI dependency เพื่อให้รันและทดสอบได้โดยไม่ติดตั้งบริการเพิ่ม และตั้งใจ Bind ที่ Loopback
 - Backend ใช้ SQLite; ยังไม่มี PostgreSQL, Qdrant, Alembic migration chain หรือ semantic search
 - PDF extraction ต้องติดตั้ง PyMuPDF; OCR ภาษาไทย, การตรวจเอกสารสแกน และการสกัดข้อมูลจากตารางที่ซับซ้อนยังไม่ทำ
-- AI Provider จริง, RAG, Source References, Prompt Injection defense pipeline และการเรียนรู้จาก Feedback ยังไม่เชื่อมต่อ; Demo Suggestions ไม่ใช่คำแนะนำจากโมเดล
+- OpenAI Suggestions เปิดใช้ได้ผ่าน Backend แต่ยังไม่มี RAG, Source References, prompt-injection defense pipeline หรือการเรียนรู้จาก Feedback; Demo Suggestions ยังคงเป็นข้อความจำลอง
 - Template Registry ปัจจุบันเป็นแม่แบบระบบแบบอ่านอย่างเดียว; ยังไม่มีหน้าสร้างหรือแก้ไข Template/Approval Rules
 - Preview แสดง Metadata และข้อความที่สกัดได้; ยังไม่มี PDF renderer หรือการแสดงเอกสาร Office แบบหน้าเอกสาร
 - ไม่มี Push Notification, Approval Task, Audit identity หรือการซิงก์ข้ามผู้ใช้
-- Flutter SDK ไม่อยู่ใน Environment ที่ใช้เตรียมงานนี้ จึงยังตรวจ Compile, Layout overflow และการทำงานของ Windows Plugin จริงไม่ได้
+- Flutter SDK และ Visual Studio C++ Build Tools ติดตั้งแล้ว; Windows Runner ถูกสร้าง แต่ Flutter หยุดที่ข้อกำหนด symlink เพราะ Windows Developer Mode ยังปิดอยู่ จึงยังไม่ได้เปิดแอปหรือตรวจ Layout จริง
 
 ## ความปลอดภัยและข้อมูล
 
 - อย่าใส่ API Key, Password, เอกสารจริง หรือ Credentials ลง Source Code หรือ Test Fixtures
+- เมื่อ `AI_PROVIDER=openai` ข้อความในช่องที่ขอ Suggestion จะถูกส่งไป OpenAI; ใช้ Demo Mode หากไม่ต้องการส่งข้อมูลออกจากเครื่อง
 - SQLite และไฟล์อัปโหลดเก็บอยู่นอก Repository; `.gitignore` กันไฟล์ local database, Uploads และ `.env`
 - API ไม่บันทึก request body หรือ extracted text ลง Log และตอบข้อผิดพลาดโดยไม่คืน stack trace
 - Backend จำกัด Extension, MIME, File Size, Office archive size, path traversal และชื่อไฟล์; การป้องกันนี้ไม่ทดแทน Malware Scanning

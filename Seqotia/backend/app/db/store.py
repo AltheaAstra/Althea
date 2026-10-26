@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Iterator
 from zoneinfo import ZoneInfo
 
-from ..ai.provider import DemoSuggestionProvider, SuggestionProvider
+from ..ai.provider import SuggestionProvider, create_suggestion_provider
 from ..document_processors import (
     ExtractionResult,
     extract_docx,
@@ -68,7 +68,7 @@ class Store:
         self.database_path = database_path
         self.upload_dir = upload_dir.resolve()
         self.max_upload_bytes = max_upload_bytes
-        self.suggestion_provider = suggestion_provider or DemoSuggestionProvider()
+        self.suggestion_provider = suggestion_provider or create_suggestion_provider()
         self.database_path.parent.mkdir(parents=True, exist_ok=True)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
         self._migrate()
@@ -624,14 +624,15 @@ class Store:
                 "recent_documents": [dict(item) for item in recent]}
 
     def create_suggestion(self, document_type: str, field_name: str, text: str = "") -> dict[str, Any]:
+        suggestions = self.suggestion_provider.suggest(document_type, field_name, text)
         suggestion_id = str(uuid.uuid4())
         with self._connection() as connection:
             connection.execute("INSERT INTO ai_suggestions(id,document_type,field_name,provider,created_at) VALUES(?,?,?,?,?)",
                                (suggestion_id,document_type[:40],field_name[:80],self.suggestion_provider.name,timestamp()))
-        message = "ตัวอย่างข้อความจำลอง — โปรดตรวจสอบและยืนยันเอง" if self.suggestion_provider.is_mock else "โปรดตรวจสอบข้อความก่อนนำไปใช้"
+        message = "ตัวอย่างข้อความจำลอง — โปรดตรวจสอบและยืนยันเอง" if self.suggestion_provider.is_mock else "ข้อความแนะนำจาก AI — โปรดตรวจสอบก่อนนำไปใช้"
         return {"suggestion_id": suggestion_id, "status": self.suggestion_provider.name, "is_mock": self.suggestion_provider.is_mock,
                 "message": message, "sources": [],
-                "suggestions": self.suggestion_provider.suggest(document_type,field_name,text)}
+                "suggestions": suggestions}
 
     def save_feedback(self, suggestion_id: str, accepted: bool, correction: str | None = None) -> None:
         if correction is not None and (not isinstance(correction, str) or len(correction) > 2000):

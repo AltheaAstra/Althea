@@ -13,6 +13,12 @@ if (-not (Test-Path -LiteralPath $flutterExecutable -PathType Leaf)) {
     throw 'Flutter is not installed. In VS Code choose Terminal > Run Task > Seqotia: Install prerequisites, then restart VS Code.'
 }
 
+$developerMode = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' `
+    -Name 'AllowDevelopmentWithoutDevLicense' -ErrorAction SilentlyContinue
+if ($developerMode.AllowDevelopmentWithoutDevLicense -ne 1) {
+    throw 'Enable Windows Developer Mode in Settings > System > Advanced > For developers, then restart VS Code and press F5 again.'
+}
+
 if (-not (Test-Path -LiteralPath (Join-Path $projectRoot 'windows\CMakeLists.txt') -PathType Leaf)) {
     & $flutterExecutable create --platforms=windows --project-name seqotia .
     if ($LASTEXITCODE -ne 0) {
